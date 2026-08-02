@@ -1,0 +1,53 @@
+name: Regenerate sources
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Exact CPython release
+        required: true
+        default: 3.12.8
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: regenerate-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  regenerate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-14 libclang-14-dev
+      - name: Run unit tests
+        run: make test
+      - name: Regenerate exact source closure
+        env:
+          CPYTHON_REPO_URL: https://github.com/python/cpython.git
+          LIBCLANG: /usr/lib/llvm-14/lib/libclang.so.1
+          VERSION: ${{ inputs.version }}
+        run: make regenerate-frame-eval VERSION="$VERSION"
+      - name: Commit generated sources
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          git add -A -- "sources/$VERSION"
+          if git diff --cached --quiet; then
+            echo "sources/$VERSION is already current"
+            exit 0
+          fi
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m "Regenerate frame eval sources for $VERSION"
+          git push origin "HEAD:${GITHUB_REF_NAME}"

@@ -56,6 +56,12 @@ private Python environment under `build/.venv` using
 A version is supported only when its exact patch exists. This intentionally
 prevents silently applying one patch release's assumptions to another.
 
+The `Regenerate sources` workflow accepts an exact CPython version and commits
+the resulting snapshot to the branch from which it was run. Regeneration builds
+in a staging directory and replaces `sources/<version>` as a whole; the
+workflow stages that directory with `git add -A`, so files no longer selected
+by a newer extraction regime are committed as deletions rather than retained.
+
 ## Validate an existing snapshot
 
 `validate` accepts its build inputs through environment variables. Regeneration
