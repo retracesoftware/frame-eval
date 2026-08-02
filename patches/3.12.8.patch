@@ -88,6 +88,45 @@
 +#define _PyInstrumentation_DISABLE (*frame_eval_monitoring_disable)
 +#define _PyInstrumentation_MISSING (*frame_eval_monitoring_missing)
 
+--- a/Python/ceval_macros.h
++++ b/Python/ceval_macros.h
+@@ -108 +108 @@
+-        assert(tstate->interp->eval_frame == NULL);     \
++        assert(FRAME_EVAL_SPECIALIZATION_ALLOWED(tstate)); \
+
+--- a/Python/generated_cases.c.h
++++ b/Python/generated_cases.c.h
+@@ -710 +710 @@
+-            DEOPT_IF(tstate->interp->eval_frame, BINARY_SUBSCR);
++            DEOPT_IF(!FRAME_EVAL_SPECIALIZATION_ALLOWED(tstate), BINARY_SUBSCR);
+@@ -1162 +1162 @@
+-            if ((tstate->interp->eval_frame == NULL) &&
++            if (FRAME_EVAL_SPECIALIZATION_ALLOWED(tstate) &&
+@@ -1207 +1207 @@
+-            DEOPT_IF(tstate->interp->eval_frame, SEND);
++            DEOPT_IF(!FRAME_EVAL_SPECIALIZATION_ALLOWED(tstate), SEND);
+@@ -2641 +2641 @@
+-            DEOPT_IF(tstate->interp->eval_frame, LOAD_ATTR);
++            DEOPT_IF(!FRAME_EVAL_SPECIALIZATION_ALLOWED(tstate), LOAD_ATTR);
+@@ -2673 +2673 @@
+-            DEOPT_IF(tstate->interp->eval_frame, LOAD_ATTR);
++            DEOPT_IF(!FRAME_EVAL_SPECIALIZATION_ALLOWED(tstate), LOAD_ATTR);
+@@ -3440 +3440 @@
+-            DEOPT_IF(tstate->interp->eval_frame, FOR_ITER);
++            DEOPT_IF(!FRAME_EVAL_SPECIALIZATION_ALLOWED(tstate), FOR_ITER);
+@@ -3754 +3754 @@
+-                tstate->interp->eval_frame == NULL &&
++                FRAME_EVAL_SPECIALIZATION_ALLOWED(tstate) &&
+@@ -3838 +3838 @@
+-            DEOPT_IF(tstate->interp->eval_frame, CALL);
++            DEOPT_IF(!FRAME_EVAL_SPECIALIZATION_ALLOWED(tstate), CALL);
+@@ -3872 +3872 @@
+-            DEOPT_IF(tstate->interp->eval_frame, CALL);
++            DEOPT_IF(!FRAME_EVAL_SPECIALIZATION_ALLOWED(tstate), CALL);
+@@ -4478 +4478 @@
+-                    tstate->interp->eval_frame == NULL &&
++                    FRAME_EVAL_SPECIALIZATION_ALLOWED(tstate) &&
+
 --- a/Python/instrumentation.c
 +++ b/Python/instrumentation.c
 @@ -16,14 +16,4 @@
@@ -109,3 +148,24 @@
 +extern PyObject *frame_eval_monitoring_missing;
 +#define _PyInstrumentation_DISABLE (*frame_eval_monitoring_disable)
 +#define _PyInstrumentation_MISSING (*frame_eval_monitoring_missing)
+
+--- a/Python/specialize.c
++++ b/Python/specialize.c
+@@ -790 +790 @@
+-            if (_PyInterpreterState_GET()->eval_frame) {
++            if (!FRAME_EVAL_SPECIALIZATION_ALLOWED_INTERP(_PyInterpreterState_GET())) {
+@@ -856 +856 @@
+-            if (_PyInterpreterState_GET()->eval_frame) {
++            if (!FRAME_EVAL_SPECIALIZATION_ALLOWED_INTERP(_PyInterpreterState_GET())) {
+@@ -1404 +1404 @@
+-        if (_PyInterpreterState_GET()->eval_frame) {
++        if (!FRAME_EVAL_SPECIALIZATION_ALLOWED_INTERP(_PyInterpreterState_GET())) {
+@@ -1677 +1677 @@
+-    if (_PyInterpreterState_GET()->eval_frame) {
++    if (!FRAME_EVAL_SPECIALIZATION_ALLOWED_INTERP(_PyInterpreterState_GET())) {
+@@ -2229 +2229 @@
+-        if (_PyInterpreterState_GET()->eval_frame) {
++        if (!FRAME_EVAL_SPECIALIZATION_ALLOWED_INTERP(_PyInterpreterState_GET())) {
+@@ -2256 +2256 @@
+-        if (_PyInterpreterState_GET()->eval_frame) {
++        if (!FRAME_EVAL_SPECIALIZATION_ALLOWED_INTERP(_PyInterpreterState_GET())) {

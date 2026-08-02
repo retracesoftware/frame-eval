@@ -45,7 +45,7 @@ while read -r relative; do
         "$compiler" -I"$snapshot/Include/internal" -I"$snapshot/Include" \
             -include "$snapshot/Include/retrace_redacted.h" \
             $flags \
-            -D_PyEval_EvalFrameDefault=frame_eval_test \
+            -D_PyEval_EvalFrameDefault=frame_eval \
             -DSOABI=\"$soabi\" \
             -DPYTHONPATH=\"\" -DPREFIX=\"/usr/local\" \
             -DEXEC_PREFIX=\"/usr/local\" -DVERSION=\"$python_version\" \

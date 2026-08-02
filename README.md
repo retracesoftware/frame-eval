@@ -84,8 +84,8 @@ After regeneration, run focused or complete CPython tests with:
 ./test-generated 3.12.8
 ```
 
-The test extension renames the copied root to `frame_eval_test`, calls the
-generated archive's `frame_eval_init()`, installs that exact function during
+The generated archive exports the copied root as `frame_eval`. The test
+extension calls `frame_eval_init()`, installs that exact function during
 module initialization, and verifies the active pointer.
 `sitecustomize` loads it in the test runner and inherited worker processes. The
 no-argument form runs the standard suite in parallel with a per-test timeout.

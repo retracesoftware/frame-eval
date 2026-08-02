@@ -2,14 +2,12 @@
 #include "Python.h"
 #include "frame_eval.h"
 
-PyObject *frame_eval_test(PyThreadState *, struct _PyInterpreterFrame *, int);
-
 static PyObject *
 installed(PyObject *Py_UNUSED(module), PyObject *Py_UNUSED(ignored))
 {
     _PyFrameEvalFunction current =
         _PyInterpreterState_GetEvalFrameFunc(PyInterpreterState_Get());
-    return PyBool_FromLong(current == frame_eval_test);
+    return PyBool_FromLong(current == frame_eval);
 }
 
 static PyMethodDef methods[] = {
@@ -36,6 +34,6 @@ PyInit__frame_eval_test(void)
         return NULL;
     }
     _PyInterpreterState_SetEvalFrameFunc(PyInterpreterState_Get(),
-                                         frame_eval_test);
+                                         frame_eval);
     return result;
 }
