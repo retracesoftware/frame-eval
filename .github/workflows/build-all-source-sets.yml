@@ -1,0 +1,43 @@
+name: Build all source sets
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  discover-versions:
+    runs-on: ubuntu-24.04
+    outputs:
+      versions: ${{ steps.versions.outputs.versions }}
+    steps:
+      - name: Check out frame-eval
+        uses: actions/checkout@v4
+      - name: Find supported versions
+        id: versions
+        shell: bash
+        run: |
+          versions=$(python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          versions = [path.stem for path in Path("patches").glob("*.patch")]
+          versions.sort(key=lambda version: tuple(map(int, version.split("."))))
+          if not versions:
+              raise SystemExit("no supported versions found in patches/")
+          print(json.dumps(versions, separators=(",", ":")))
+          PY
+          )
+          echo "versions=$versions" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: discover-versions
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ${{ fromJSON(needs.discover-versions.outputs.versions) }}
+    uses: ./.github/workflows/build-source-set.yml
+    with:
+      generator_ref: ${{ github.sha }}
+      python_tag: v${{ matrix.version }}
