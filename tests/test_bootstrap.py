@@ -11,6 +11,17 @@ BOOTSTRAP = ROOT / "tests" / "bootstrap"
 
 
 class BootstrapTests(unittest.TestCase):
+    def test_allows_child_without_extension_environment(self):
+        environment = os.environ.copy()
+        environment["PYTHONPATH"] = str(BOOTSTRAP)
+        environment.pop("FRAME_EVAL_EXTENSION", None)
+
+        subprocess.run(
+            [sys.executable, "-c", "pass"],
+            check=True,
+            env=environment,
+        )
+
     def test_loads_extension_outside_pythonpath(self):
         with tempfile.TemporaryDirectory() as extension_dir:
             extension = Path(extension_dir) / "_frame_eval_test.py"
