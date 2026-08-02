@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ $# -ne 1 ]]; then
+    echo "usage: $0 VERSION" >&2
+    exit 2
+fi
+
+version=${1#v}
+root=$(cd "$(dirname "$0")" && pwd)
+compiler=${CC:-cc}
+source_tree=${SOURCE_TREE:-"$root/build/v$version/cpython"}
+snapshot=${SNAPSHOT:-"$root/sources/$version"}
+mode_root=${OUTPUT_ROOT:-"$root/build/validate/v$version"}
+host=${HOST_PYTHON:-"$source_tree/python"}
+archive=${LIBPYTHON_ARCHIVE:-"$source_tree/libpython${version%.*}.a"}
+objects="$mode_root/obj"
+output="$mode_root/libpython-frame-eval.a"
+compile_log="$mode_root/compile.log"
+
+for path in "$source_tree/Makefile" "$snapshot/sources.txt" "$host" "$archive"; do
+    if [[ ! -e "$path" ]]; then
+        echo "missing prerequisite: $path" >&2
+        exit 1
+    fi
+done
+
+flags=$(env MAKEFLAGS= make -C "$source_tree" --no-print-directory -s \
+    --eval=$'print-retrace-flags:\n\t@printf "%s\\n" "$(PY_CORE_CFLAGS)"' \
+    print-retrace-flags | tail -n 1)
+python_version=${version%.*}
+soabi=$(env MAKEFLAGS= make -C "$source_tree" --no-print-directory -s \
+    --eval=$'print-retrace-soabi:\n\t@printf "%s\\n" "$(SOABI)"' \
+    print-retrace-soabi | tail -n 1)
+
+rm -rf "$objects"
+mkdir -p "$objects"
+: > "$compile_log"
+while read -r relative; do
+    object="$objects/${relative//\//_}"
+    object="${object%.c}.o"
+    source_parent="$source_tree/$(dirname "$relative")"
+    if ! (
+        cd "$source_tree"
+        "$compiler" -I"$snapshot/Include/internal" -I"$snapshot/Include" \
+            -include "$snapshot/Include/retrace_redacted.h" \
+            $flags \
+            -DSOABI=\"$soabi\" \
+            -DPYTHONPATH=\"\" -DPREFIX=\"/usr/local\" \
+            -DEXEC_PREFIX=\"/usr/local\" -DVERSION=\"$python_version\" \
+            -DVPATH=\"\" -DPLATLIBDIR=\"lib\" -DPYTHONFRAMEWORK=\"\" \
+            -iquote "$snapshot/$(dirname "$relative")" \
+            -iquote "$source_parent" -I"$snapshot" \
+            -c "$snapshot/$relative" -o "$object"
+    ) >> "$compile_log" 2>&1; then
+        echo "failed to compile $relative" >&2
+        tail -n 80 "$compile_log" >&2
+        exit 1
+    fi
+done < "$snapshot/sources.txt"
+
+rm -f "$output"
+ar rcs "$output" "$objects"/*.o
+
+if nm -a "$output" | grep -Eq '(_Py_tss_tstate|_PyThreadState_SwapNoGIL)$'; then
+    echo "redacted archive retains copied thread-state TLS" >&2
+    exit 1
+fi
+
+temporary=$(mktemp -d)
+trap 'rm -rf "$temporary"' EXIT
+nm -g --defined-only "$output" | awk 'NF >= 2 {print $NF}' | sort -u \
+    > "$temporary/definitions"
+nm -g --undefined-only "$output" \
+    | awk 'NF >= 2 && $(NF-1) == "U" {print $NF}' | sort -u \
+    > "$temporary/undefined"
+comm -23 "$temporary/undefined" "$temporary/definitions" \
+    > "$temporary/external"
+nm -g --defined-only "$archive" | awk 'NF >= 2 {print $NF}' | sort -u \
+    > "$temporary/cpython"
+nm -D -g --defined-only "$host" | awk 'NF {print $NF}' | sort -u \
+    > "$temporary/host"
+comm -12 "$temporary/external" "$temporary/cpython" \
+    > "$temporary/external-cpython"
+comm -23 "$temporary/external-cpython" "$temporary/host" \
+    > "$temporary/hidden"
+
+if [[ -s "$temporary/hidden" ]]; then
+    echo "CPython dependencies not exported by host:" >&2
+    cat "$temporary/hidden" >&2
+    exit 1
+fi
+
+printf 'compiled %s sources; %s CPython externals are host-exported\n' \
+    "$(wc -l < "$snapshot/sources.txt")" \
+    "$(wc -l < "$temporary/external-cpython")"

@@ -1,0 +1,121 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ $# -ne 1 ]]; then
+    echo "usage: $0 VERSION" >&2
+    exit 2
+fi
+
+version=${1#v}
+if [[ ! $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "VERSION must be an exact CPython release such as 3.12.8" >&2
+    exit 2
+fi
+
+root=$(cd "$(dirname "$0")" && pwd)
+workflow="$root"
+patch_file="$workflow/patches/$version.patch"
+destination="$workflow/sources/$version"
+build_root="$root/build"
+work="$build_root/v$version"
+source_tree="$work/cpython"
+staging="$work/snapshot"
+venv="$build_root/.venv"
+repository=${CPYTHON_REPO_URL:-file:///opt/cpython.git}
+jobs=${JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2)}
+
+if [[ ! -f $patch_file ]]; then
+    echo "unsupported release: missing $patch_file" >&2
+    exit 1
+fi
+
+rm -rf "$work"
+mkdir -p "$work"
+git clone --depth 1 --branch "v$version" "$repository" "$source_tree"
+source_commit=$(git -C "$source_tree" rev-parse HEAD)
+
+(
+    cd "$source_tree"
+    ./configure --without-ensurepip -q \
+        CFLAGS="-O3" \
+        CFLAGS_NODIST="-fPIC -ffunction-sections -fdata-sections"
+    env MAKEFLAGS= make -j"$jobs"
+)
+
+host="$source_tree/python"
+mapfile -t archives < <(find "$source_tree" -maxdepth 1 -type f \
+    -name 'libpython*.a' -print)
+if [[ ${#archives[@]} -ne 1 ]]; then
+    echo "expected one libpython archive, found ${#archives[@]}" >&2
+    exit 1
+fi
+archive=${archives[0]}
+
+patch --batch --fuzz=0 --no-backup-if-mismatch -d "$source_tree" -p1 \
+    < "$patch_file"
+
+if [[ ! -x $venv/bin/python ]]; then
+    python3 -m venv "$venv"
+fi
+if ! "$venv/bin/python" -c 'import clang.cindex' >/dev/null 2>&1; then
+    "$venv/bin/pip" install -r "$workflow/requirements.txt"
+fi
+
+libclang=${LIBCLANG:-}
+if [[ -z $libclang ]] && command -v llvm-config >/dev/null 2>&1; then
+    candidate="$(llvm-config --libdir)/libclang.so"
+    if [[ -e $candidate ]]; then
+        libclang=$candidate
+    fi
+fi
+if [[ -z $libclang ]] && command -v ldconfig >/dev/null 2>&1; then
+    libclang=$(ldconfig -p | awk '/libclang-[0-9]+\.so/{print $NF; exit}')
+fi
+if [[ -z $libclang || ! -e $libclang ]]; then
+    echo "libclang not found; set LIBCLANG to its shared-library path" >&2
+    exit 1
+fi
+
+"$venv/bin/python" "$workflow/extract.py" \
+    --version "$version" \
+    --libclang "$libclang" \
+    --archive "$archive" \
+    --host "$host" \
+    --source-tree "$source_tree" \
+    --root _PyEval_EvalFrameDefault \
+    --out "$staging"
+
+mkdir -p "$staging/Include/internal"
+cp "$source_tree/Include/internal/pycore_pystate.h" \
+    "$staging/Include/internal/pycore_pystate.h"
+cp "$workflow/templates/retrace_redacted.h" \
+    "$staging/Include/retrace_redacted.h"
+
+SOURCE_TREE="$source_tree" \
+SNAPSHOT="$staging" \
+HOST_PYTHON="$host" \
+LIBPYTHON_ARCHIVE="$archive" \
+OUTPUT_ROOT="$work/validate" \
+    "$workflow/validate" "$version"
+
+{
+    printf 'version=%s\n' "$version"
+    printf 'cpython-tag=v%s\n' "$version"
+    printf 'cpython-commit=%s\n' "$source_commit"
+    for input in \
+        regenerate \
+        extract.py \
+        validate \
+        requirements.txt \
+        "patches/$version.patch" \
+        templates/retrace_redacted.h
+    do
+        printf 'sha256:%s=%s\n' "$input" \
+            "$(sha256sum "$workflow/$input" | awk '{print $1}')"
+    done
+} > "$staging/.generated"
+
+rm -rf "$destination"
+mv "$staging" "$destination"
+printf 'updated %s\n' "$destination"
+printf 'review with: git diff -- %s\n' "$destination"
