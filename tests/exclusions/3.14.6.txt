@@ -1,0 +1,3 @@
+# CPython's perf trampoline is itself an exclusive PEP 523 eval-frame hook.
+# It cannot be active while frame_eval is installed.
+test_perf_profiler

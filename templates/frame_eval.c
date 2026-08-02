@@ -5,6 +5,9 @@ PyObject *frame_eval_monitoring_disable = NULL;
 PyObject *frame_eval_monitoring_missing = NULL;
 PyTypeObject *frame_eval_typealias_type = NULL;
 PyTypeObject *frame_eval_union_type = NULL;
+getattrofunc frame_eval_slot_tp_getattr_hook = NULL;
+getattrofunc frame_eval_slot_tp_getattro = NULL;
+vectorcallfunc frame_eval_function_vectorcall = NULL;
 
 enum FrameEvalStateStatus {
     FRAME_EVAL_STATE_UNINITIALIZED,
@@ -57,6 +60,46 @@ frame_eval_capture_type(const char *module_name, const char *attr_name,
     return 0;
 }
 
+static int
+frame_eval_capture_call_slots(getattrofunc *getattr_hook,
+                              getattrofunc *getattro,
+                              vectorcallfunc *function_vectorcall)
+{
+    PyObject *globals = PyDict_New();
+    if (globals == NULL) {
+        return -1;
+    }
+    PyObject *result = PyRun_String(
+        "class _FrameEvalGetattr:\n"
+        "    def __getattr__(self, name): return None\n"
+        "class _FrameEvalGetattribute:\n"
+        "    def __getattribute__(self, name): return None\n"
+        "def _frame_eval_function(): pass\n"
+        "_FrameEvalGetattribute()._frame_eval_probe\n",
+        Py_file_input, globals, globals);
+    if (result == NULL) {
+        Py_DECREF(globals);
+        return -1;
+    }
+    Py_DECREF(result);
+    PyObject *getattr_type = PyDict_GetItemString(globals, "_FrameEvalGetattr");
+    PyObject *getattribute_type = PyDict_GetItemString(
+        globals, "_FrameEvalGetattribute");
+    PyObject *function = PyDict_GetItemString(globals, "_frame_eval_function");
+    if (!PyType_Check(getattr_type) || !PyType_Check(getattribute_type) ||
+        !PyFunction_Check(function)) {
+        Py_DECREF(globals);
+        PyErr_SetString(PyExc_RuntimeError,
+                        "failed to create frame-eval slot probe types");
+        return -1;
+    }
+    *getattr_hook = ((PyTypeObject *)getattr_type)->tp_getattro;
+    *getattro = ((PyTypeObject *)getattribute_type)->tp_getattro;
+    *function_vectorcall = ((PyFunctionObject *)function)->vectorcall;
+    Py_DECREF(globals);
+    return 0;
+}
+
 int
 frame_eval_init(void)
 {
@@ -74,6 +117,9 @@ frame_eval_init(void)
     PyObject *monitoring_missing = NULL;
     PyTypeObject *typealias_type = NULL;
     PyTypeObject *union_type = NULL;
+    getattrofunc slot_tp_getattr_hook = NULL;
+    getattrofunc slot_tp_getattro = NULL;
+    vectorcallfunc function_vectorcall = NULL;
 
     PyObject *empty_dict = PyDict_New();
     if (empty_dict == NULL) {
@@ -97,12 +143,20 @@ frame_eval_init(void)
     if (frame_eval_capture_type("types", "UnionType", &union_type) < 0) {
         goto fail;
     }
+    if (frame_eval_capture_call_slots(&slot_tp_getattr_hook,
+                                      &slot_tp_getattro,
+                                      &function_vectorcall) < 0) {
+        goto fail;
+    }
 
     frame_eval_empty_keys = empty_keys;
     frame_eval_monitoring_disable = monitoring_disable;
     frame_eval_monitoring_missing = monitoring_missing;
     frame_eval_typealias_type = typealias_type;
     frame_eval_union_type = union_type;
+    frame_eval_slot_tp_getattr_hook = slot_tp_getattr_hook;
+    frame_eval_slot_tp_getattro = slot_tp_getattro;
+    frame_eval_function_vectorcall = function_vectorcall;
     frame_eval_state_status = FRAME_EVAL_STATE_INITIALIZED;
     return 0;
 
