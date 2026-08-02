@@ -3,16 +3,25 @@ name: Build source set
 on:
   workflow_call:
     inputs:
-      version:
-        description: Exact CPython release
+      generator_ref:
+        description: Immutable frame-eval Git ref
+        required: true
+        type: string
+      python_tag:
+        description: Exact CPython release tag
         required: true
         type: string
   workflow_dispatch:
     inputs:
-      version:
-        description: Exact CPython release
+      generator_ref:
+        description: Immutable frame-eval Git ref
         required: true
-        default: 3.12.8
+        default: main
+        type: string
+      python_tag:
+        description: Exact CPython release tag
+        required: true
+        default: v3.12.8
         type: string
 
 permissions:
@@ -22,7 +31,11 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out frame-eval
+        uses: actions/checkout@v4
+        with:
+          repository: retracesoftware/frame-eval
+          ref: ${{ inputs.generator_ref }}
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -36,18 +49,25 @@ jobs:
         env:
           CPYTHON_REPO_URL: https://github.com/python/cpython.git
           LIBCLANG: /usr/lib/llvm-14/lib/libclang.so.1
-          VERSION: ${{ inputs.version }}
-        run: make regenerate-frame-eval VERSION="$VERSION"
+          PYTHON_TAG: ${{ inputs.python_tag }}
+        run: |
+          if [[ ! "$PYTHON_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "invalid exact CPython tag: $PYTHON_TAG" >&2
+            exit 1
+          fi
+          make regenerate-frame-eval VERSION="${PYTHON_TAG#v}"
       - name: Package source set
         env:
-          VERSION: ${{ inputs.version }}
+          PYTHON_TAG: ${{ inputs.python_tag }}
         run: |
+          version=${PYTHON_TAG#v}
           mkdir -p build/workflow
-          tar -C sources -czf "build/workflow/frame-eval-$VERSION.tar.gz" "$VERSION"
+          tar -C build/workflow/sources -czf \
+            "build/workflow/frame-eval-$version.tar.gz" "$version"
       - name: Upload source set
         uses: actions/upload-artifact@v4
         with:
-          name: frame-eval-sources-${{ inputs.version }}
-          path: build/workflow/frame-eval-${{ inputs.version }}.tar.gz
+          name: frame-eval-sources-${{ inputs.python_tag }}
+          path: build/workflow/frame-eval-*.tar.gz
           if-no-files-found: error
           retention-days: 7

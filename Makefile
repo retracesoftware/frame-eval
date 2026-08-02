@@ -1,6 +1,6 @@
 VERSION ?= 3.12.8
 
-SNAPSHOT := sources/$(VERSION)
+SNAPSHOT := build/workflow/sources/$(VERSION)
 STAMP := $(SNAPSHOT)/.generated
 GENERATOR_INPUTS := regenerate \
 	extract.py \
@@ -9,7 +9,7 @@ GENERATOR_INPUTS := regenerate \
 	templates/retrace_redacted.h \
 	patches/$(VERSION).patch
 
-.PHONY: all frame-eval-sources regenerate-frame-eval check-generated test
+.PHONY: all frame-eval-sources regenerate-frame-eval test
 all: frame-eval-sources
 
 frame-eval-sources: $(STAMP)
@@ -19,9 +19,6 @@ $(STAMP): $(GENERATOR_INPUTS)
 
 regenerate-frame-eval:
 	./regenerate $(VERSION)
-
-check-generated: regenerate-frame-eval
-	git diff --exit-code -- sources/$(VERSION)
 
 test:
 	python3 -m unittest discover -s tests -v

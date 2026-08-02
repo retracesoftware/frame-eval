@@ -11,13 +11,11 @@ This repository owns the reproducible source closure rooted at
 - `patches/<version>.patch`: changes applied after building vanilla CPython but
   before extraction. These redirect process-owned state and shape the closure.
 - `templates/`: generated-tree support headers.
-- `sources/<version>/`: Git-maintained generated sources and manifests.
 - `archive_closure.py`: archive-level closure diagnostic used by unit tests.
 
-The files under `sources/` are generated artifacts, similar to CPython's
-checked-in generated headers. Review, commit, and push their diffs normally.
-They retain upstream relative paths so later Retrace patches can operate on
-recognizable CPython source.
+Generated source sets are workflow artifacts consumed and checked in by
+`retrace-eval`. They retain upstream relative paths so later Retrace patches
+can operate on recognizable CPython source.
 
 ## Regenerate a release
 
@@ -35,18 +33,18 @@ The command:
 4. Extracts the source closure rooted at `_PyEval_EvalFrameDefault`.
 5. Compiles the staged closure and verifies that every remaining CPython
    dependency is exported by the exact host.
-6. Replaces `sources/3.12.8` only after validation succeeds.
+6. Replaces `build/workflow/sources/3.12.8` only after validation succeeds.
 
 The snapshot's `.generated` file records the exact CPython commit and SHA-256
-hashes of every transformation input. Make ties that artifact to those inputs:
+hashes of every transformation input. Generate it locally with:
 
 ```bash
 make frame-eval-sources VERSION=3.12.8
 ```
 
-That command regenerates only when an input is newer than the checked-in
-artifact. To deliberately regenerate from unchanged inputs, use
-`make regenerate-frame-eval VERSION=3.12.8`.
+That command regenerates only when an input is newer than the local artifact.
+To deliberately regenerate from unchanged inputs, use `make
+regenerate-frame-eval VERSION=3.12.8`.
 
 `CPYTHON_REPO_URL`, `JOBS`, `CC`, and `LIBCLANG` may override the repository,
 parallelism, compiler, and libclang shared library. The workflow creates a
@@ -56,17 +54,9 @@ private Python environment under `build/.venv` using
 A version is supported only when its exact patch exists. This intentionally
 prevents silently applying one patch release's assumptions to another.
 
-The `Build source set` workflow generates and validates one exact release, then
-uploads `build/workflow/frame-eval-<version>.tar.gz` as a workflow artifact. It
-does not modify the repository.
-
-Run the `Update source sets` workflow to update every supported release. It
-derives a matrix from `patches/*.patch`, invokes `Build source set` for each
-version, and waits for the complete matrix to succeed. Its final job downloads
-all artifacts, deletes `sources/`, extracts exactly the successful source sets,
-and commits the complete replacement once. Deleting the destination first
-ensures files and release directories that are no longer generated cannot
-remain stale.
+The `Build source set` workflow accepts an immutable `frame-eval` ref and an
+exact CPython tag. It generates and validates that release, then uploads
+`build/workflow/frame-eval-<version>.tar.gz`. It never modifies a repository.
 
 ## Validate an existing snapshot
 
