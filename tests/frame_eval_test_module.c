@@ -15,25 +15,33 @@ static PyMethodDef methods[] = {
     {NULL, NULL, 0, NULL},
 };
 
+static int
+module_exec(PyObject *Py_UNUSED(module))
+{
+    if (frame_eval_init() < 0) {
+        return -1;
+    }
+    _PyInterpreterState_SetEvalFrameFunc(PyInterpreterState_Get(), frame_eval);
+    return 0;
+}
+
+static PyModuleDef_Slot slots[] = {
+    {Py_mod_exec, module_exec},
+    {Py_mod_multiple_interpreters, Py_MOD_PER_INTERPRETER_GIL_SUPPORTED},
+    {0, NULL},
+};
+
 static struct PyModuleDef module = {
     PyModuleDef_HEAD_INIT,
     "_frame_eval_test",
     NULL,
-    -1,
+    0,
     methods,
+    slots,
 };
 
 PyMODINIT_FUNC
 PyInit__frame_eval_test(void)
 {
-    if (frame_eval_init() < 0) {
-        return NULL;
-    }
-    PyObject *result = PyModule_Create(&module);
-    if (result == NULL) {
-        return NULL;
-    }
-    _PyInterpreterState_SetEvalFrameFunc(PyInterpreterState_Get(),
-                                         frame_eval);
-    return result;
+    return PyModuleDef_Init(&module);
 }

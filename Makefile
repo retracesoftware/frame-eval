@@ -9,6 +9,7 @@ GENERATOR_INPUTS := regenerate \
 	templates/frame_eval.c \
 	templates/frame_eval.h \
 	templates/retrace_redacted.h \
+	tests/exclusions/$(VERSION).txt \
 	patches/$(VERSION).patch
 
 .PHONY: all frame-eval-sources regenerate-frame-eval test test-generated

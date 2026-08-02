@@ -119,7 +119,8 @@ OUTPUT_ROOT="$work/validate" \
         "patches/$version.patch" \
         templates/frame_eval.c \
         templates/frame_eval.h \
-        templates/retrace_redacted.h
+        templates/retrace_redacted.h \
+        "tests/exclusions/$version.txt"
     do
         printf 'sha256:%s=%s\n' "$input" \
             "$(sha256sum "$workflow/$input" | awk '{print $1}')"

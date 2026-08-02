@@ -88,6 +88,7 @@ The generated archive exports the copied root as `frame_eval`. The test
 extension calls `frame_eval_init()`, installs that exact function during
 module initialization, and verifies the active pointer.
 `sitecustomize` loads it in the test runner and inherited worker processes. The
-no-argument form runs the standard suite in parallel with a per-test timeout.
+no-argument form runs the standard suite in parallel with a per-test timeout
+and the reviewed exact-release exclusions in `tests/exclusions/<version>.txt`.
 
 Copied CPython files are distributed under [LICENSE](LICENSE).
