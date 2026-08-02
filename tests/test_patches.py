@@ -11,7 +11,7 @@ class PatchTests(unittest.TestCase):
         for patch in sorted((ROOT / "patches").glob("*.patch")):
             with self.subTest(patch=patch.name):
                 subprocess.run(
-                    ["git", "apply", "--numstat", "--recount", "--", str(patch)],
+                    ["git", "apply", "--numstat", "--", str(patch)],
                     cwd=ROOT,
                     check=True,
                     stdout=subprocess.DEVNULL,
