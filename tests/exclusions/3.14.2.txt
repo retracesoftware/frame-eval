@@ -1,3 +1,6 @@
 # CPython's perf trampoline is itself an exclusive PEP 523 eval-frame hook.
 # It cannot be active while frame_eval is installed.
 test_perf_profiler
+
+# Removed upstream by gh-145932: this subprocess test has an internal race.
+test_pyrepl.test_unix_console.TestUnixConsoleEIOHandling.test_repl_eio

@@ -25,12 +25,12 @@ if [[ $# -eq 0 ]]; then
     exclusions=()
     while IFS= read -r test_name; do
         [[ -z $test_name || $test_name == \#* ]] && continue
-        if [[ ! $test_name =~ ^test_[A-Za-z0-9_]+$ ]]; then
+        if [[ ! $test_name =~ ^test(_[A-Za-z0-9_]+|\.[A-Za-z0-9_]+)+$ ]]; then
             echo "invalid CPython test exclusion: $test_name" >&2
             exit 1
         fi
         exclusions+=("$test_name")
     done < "$exclusions_file"
-    set -- -j0 -w --timeout=300 -x "${exclusions[@]}"
+    set -- -j0 --timeout=300 -x "${exclusions[@]}"
 fi
 exec env PYTHONPATH="$output:$bootstrap" "$source_tree/python" -m test "$@"
