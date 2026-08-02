@@ -12,7 +12,7 @@ GENERATOR_INPUTS := regenerate \
 	tests/exclusions/$(VERSION).txt \
 	patches/$(VERSION).patch
 
-.PHONY: all frame-eval-sources regenerate-frame-eval test test-generated
+.PHONY: all benchmark frame-eval-sources regenerate-frame-eval test test-generated
 all: frame-eval-sources
 
 frame-eval-sources: $(STAMP)
@@ -28,3 +28,6 @@ test:
 
 test-generated:
 	./test-generated $(VERSION)
+
+benchmark:
+	./benchmark $(VERSION)

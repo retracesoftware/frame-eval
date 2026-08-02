@@ -11,6 +11,11 @@ on:
         description: Exact CPython release tag
         required: true
         type: string
+      benchmark:
+        description: Run paired pyperformance benchmarks
+        required: false
+        default: false
+        type: boolean
   workflow_dispatch:
     inputs:
       generator_ref:
@@ -23,6 +28,11 @@ on:
         required: true
         default: v3.12.8
         type: string
+      benchmark:
+        description: Run paired pyperformance benchmarks
+        required: true
+        default: true
+        type: boolean
 
 permissions:
   contents: read
@@ -60,6 +70,27 @@ jobs:
         env:
           PYTHON_TAG: ${{ inputs.python_tag }}
         run: ./test-generated "${PYTHON_TAG#v}"
+      - name: Benchmark generated evaluator against CPython
+        if: inputs.benchmark
+        env:
+          PYTHON_TAG: ${{ inputs.python_tag }}
+        run: ./benchmark "${PYTHON_TAG#v}"
+      - name: Add benchmark comparison to summary
+        if: inputs.benchmark
+        env:
+          PYTHON_TAG: ${{ inputs.python_tag }}
+        run: |
+          printf '```text\n' >> "$GITHUB_STEP_SUMMARY"
+          cat "build/v${PYTHON_TAG#v}/pyperformance/compare.txt" >> "$GITHUB_STEP_SUMMARY"
+          printf '```\n' >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload benchmark results
+        if: inputs.benchmark
+        uses: actions/upload-artifact@v4
+        with:
+          name: frame-eval-pyperformance-${{ inputs.python_tag }}
+          path: build/${{ inputs.python_tag }}/pyperformance/
+          if-no-files-found: error
+          retention-days: 90
       - name: Package source set
         env:
           PYTHON_TAG: ${{ inputs.python_tag }}

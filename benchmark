@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ $# -lt 1 ]]; then
+    echo "usage: $0 VERSION [pyperformance run arguments...]" >&2
+    exit 2
+fi
+
+version=${1#v}
+shift
+root=$(cd "$(dirname "$0")" && pwd)
+source_tree="$root/build/v$version/cpython"
+python="$source_tree/python"
+venv="$root/build/pyperformance"
+results="$root/build/v$version/pyperformance"
+bootstrap="$root/tests/benchmark-bootstrap"
+
+if [[ ! -x $python ]]; then
+    echo "missing prerequisite: $python" >&2
+    exit 1
+fi
+
+extension_dir=$("$root/build-test-extension" "$version")
+mkdir -p "$results"
+
+if [[ ! -x $venv/bin/python ]]; then
+    python3 -m venv "$venv"
+fi
+"$venv/bin/pip" install -r "$root/requirements-benchmark.txt"
+
+rm -f "$results/baseline.json" "$results/frame-eval.json"
+"$venv/bin/pyperformance" run \
+    --python "$python" \
+    --output "$results/baseline.json" \
+    "$@"
+env PYTHONPATH="$bootstrap" FRAME_EVAL_EXTENSION="$extension_dir" \
+    "$venv/bin/pyperformance" run \
+    --python "$python" \
+    --inherit-environ=PYTHONPATH \
+    --inherit-environ=FRAME_EVAL_EXTENSION \
+    --output "$results/frame-eval.json" \
+    "$@"
+"$venv/bin/pyperformance" compare \
+    "$results/baseline.json" "$results/frame-eval.json" \
+    --output_style table | tee "$results/compare.txt"
+
+printf 'results: %s\n' "$results"

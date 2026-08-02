@@ -1,6 +1,6 @@
 --- a/Include/internal/pycore_pystate.h
 +++ b/Include/internal/pycore_pystate.h
-@@ -93,11 +93,15 @@ extern int _PyThreadState_MustExit(PyThreadState *tstate);
+@@ -93,11 +93,7 @@ extern int _PyThreadState_MustExit(PyThreadState *tstate);
  static inline PyThreadState*
  _PyThreadState_GET(void)
  {
@@ -11,11 +11,6 @@
 -#endif
 +    return _PyThreadState_UncheckedGet();
  }
-+#define FRAME_EVAL_SPECIALIZATION_ALLOWED_INTERP(interp) \
-+    ((interp)->eval_frame == NULL || \
-+     (interp)->eval_frame == _PyEval_EvalFrameDefault)
-+#define FRAME_EVAL_SPECIALIZATION_ALLOWED(tstate) \
-+    FRAME_EVAL_SPECIALIZATION_ALLOWED_INTERP((tstate)->interp)
  
  
 --- a/Python/ceval_gil.c

@@ -128,6 +128,7 @@ frame_eval_init(void)
     PyDictKeysObject *empty_keys = ((PyDictObject *)empty_dict)->ma_keys;
     Py_DECREF(empty_dict);
 
+#if PY_VERSION_HEX >= 0x030C0000
     monitoring_disable = frame_eval_monitoring_attr("DISABLE");
     if (monitoring_disable == NULL) {
         goto fail;
@@ -140,6 +141,7 @@ frame_eval_init(void)
                                 &typealias_type) < 0) {
         goto fail;
     }
+#endif
     if (frame_eval_capture_type("types", "UnionType", &union_type) < 0) {
         goto fail;
     }

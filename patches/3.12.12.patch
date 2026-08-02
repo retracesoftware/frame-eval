@@ -1,0 +1,332 @@
+diff --git a/Include/internal/pycore_pystate.h b/Include/internal/pycore_pystate.h
+index fba08ae5..0909b5ad 100644
+--- a/Include/internal/pycore_pystate.h
++++ b/Include/internal/pycore_pystate.h
+@@ -93,11 +93,7 @@ extern int _PyThreadState_MustExit(PyThreadState *tstate);
+ static inline PyThreadState*
+ _PyThreadState_GET(void)
+ {
+-#if defined(HAVE_THREAD_LOCAL) && !defined(Py_BUILD_CORE_MODULE)
+-    return _Py_tss_tstate;
+-#else
+-    return _PyThreadState_GetCurrent();
+-#endif
++    return _PyThreadState_UncheckedGet();
+ }
+ 
+ 
+diff --git a/Objects/dictobject.c b/Objects/dictobject.c
+index 7337e290..228aaf7a 100644
+--- a/Objects/dictobject.c
++++ b/Objects/dictobject.c
+@@ -462,19 +462,9 @@ estimate_log2_keysize(Py_ssize_t n)
+  * See https://github.com/python/cpython/pull/127568#discussion_r1868070614
+  * for the rationale of using dk_log2_index_bytes=3 instead of 0.
+  */
+-static PyDictKeysObject empty_keys_struct = {
+-        _Py_IMMORTAL_REFCNT, /* dk_refcnt */
+-        0, /* dk_log2_size */
+-        3, /* dk_log2_index_bytes */
+-        DICT_KEYS_UNICODE, /* dk_kind */
+-        1, /* dk_version */
+-        0, /* dk_usable (immutable) */
+-        0, /* dk_nentries */
+-        {DKIX_EMPTY, DKIX_EMPTY, DKIX_EMPTY, DKIX_EMPTY,
+-         DKIX_EMPTY, DKIX_EMPTY, DKIX_EMPTY, DKIX_EMPTY}, /* dk_indices */
+-};
++extern PyDictKeysObject *frame_eval_empty_keys;
+ 
+-#define Py_EMPTY_KEYS &empty_keys_struct
++#define Py_EMPTY_KEYS frame_eval_empty_keys
+ 
+ /* Uncomment to check the dict content in _PyDict_CheckConsistency() */
+ // #define DEBUG_PYDICT
+diff --git a/Objects/typevarobject.c b/Objects/typevarobject.c
+index 4f0bc096..258eeb3d 100644
+--- a/Objects/typevarobject.c
++++ b/Objects/typevarobject.c
+@@ -5,6 +5,8 @@
+ #include "pycore_unionobject.h"   // _Py_union_type_or
+ #include "structmember.h"
+ 
++extern PyTypeObject *frame_eval_typealias_type;
++
+ /*[clinic input]
+ class typevar "typevarobject *" "&_PyTypeVar_Type"
+ class paramspec "paramspecobject *" "&_PyParamSpec_Type"
+@@ -1359,7 +1361,7 @@ static typealiasobject *
+ typealias_alloc(PyObject *name, PyObject *type_params, PyObject *compute_value,
+                 PyObject *value, PyObject *module)
+ {
+-    typealiasobject *ta = PyObject_GC_New(typealiasobject, &_PyTypeAlias_Type);
++    typealiasobject *ta = PyObject_GC_New(typealiasobject, frame_eval_typealias_type);
+     if (ta == NULL) {
+         return NULL;
+     }
+diff --git a/Objects/unionobject.c b/Objects/unionobject.c
+index f509a161..0d5bc57a 100644
+--- a/Objects/unionobject.c
++++ b/Objects/unionobject.c
+@@ -5,6 +5,9 @@
+ #include "pycore_unionobject.h"
+ #include "structmember.h"
+ 
++extern PyTypeObject *frame_eval_typealias_type;
++extern PyTypeObject *frame_eval_union_type;
++
+ 
+ static PyObject *make_union(PyObject *);
+ 
+@@ -152,7 +155,7 @@ is_unionable(PyObject *obj)
+         PyType_Check(obj) ||
+         _PyGenericAlias_Check(obj) ||
+         _PyUnion_Check(obj) ||
+-        Py_IS_TYPE(obj, &_PyTypeAlias_Type)) {
++        Py_IS_TYPE(obj, frame_eval_typealias_type)) {
+         return 1;
+     }
+     return 0;
+@@ -395,7 +398,7 @@ make_union(PyObject *args)
+ {
+     assert(PyTuple_CheckExact(args));
+ 
+-    unionobject *result = PyObject_GC_New(unionobject, &_PyUnion_Type);
++    unionobject *result = PyObject_GC_New(unionobject, frame_eval_union_type);
+     if (result == NULL) {
+         return NULL;
+     }
+diff --git a/Python/ceval.c b/Python/ceval.c
+index 3985b526..9c32cb76 100644
+--- a/Python/ceval.c
++++ b/Python/ceval.c
+@@ -25,6 +25,11 @@
+ #include "pycore_typeobject.h"    // _PySuper_Lookup()
+ #include "pycore_emscripten_signal.h"  // _Py_CHECK_EMSCRIPTEN_SIGNALS
+ 
++
++extern PyObject *frame_eval_monitoring_disable;
++extern PyObject *frame_eval_monitoring_missing;
++#define _PyInstrumentation_DISABLE (*frame_eval_monitoring_disable)
++#define _PyInstrumentation_MISSING (*frame_eval_monitoring_missing)
+ #include "pycore_dict.h"
+ #include "dictobject.h"
+ #include "pycore_frame.h"
+diff --git a/Python/ceval_gil.c b/Python/ceval_gil.c
+index c1ab5883..bf540b62 100644
+--- a/Python/ceval_gil.c
++++ b/Python/ceval_gil.c
+@@ -1048,18 +1048,13 @@ _Py_HandlePending(PyThreadState *tstate)
+     /* GIL drop request */
+     if (_Py_atomic_load_relaxed_int32(&interp_ceval_state->gil_drop_request)) {
+         /* Give another thread a chance */
+-        if (_PyThreadState_SwapNoGIL(NULL) != tstate) {
++        if (PyEval_SaveThread() != tstate) {
+             Py_FatalError("tstate mix-up");
+         }
+-        drop_gil(interp_ceval_state, tstate);
+ 
+         /* Other threads may run now */
+ 
+-        take_gil(tstate);
+-
+-        if (_PyThreadState_SwapNoGIL(tstate) != NULL) {
+-            Py_FatalError("orphan tstate");
+-        }
++        PyEval_RestoreThread(tstate);
+     }
+ 
+     /* Check for asynchronous exception. */
+diff --git a/Python/ceval_macros.h b/Python/ceval_macros.h
+index fccf9088..898c0fa7 100644
+--- a/Python/ceval_macros.h
++++ b/Python/ceval_macros.h
+@@ -105,7 +105,7 @@
+ 
+ #define DISPATCH_INLINED(NEW_FRAME)                     \
+     do {                                                \
+-        assert(tstate->interp->eval_frame == NULL);     \
++        assert(FRAME_EVAL_SPECIALIZATION_ALLOWED(tstate)); \
+         _PyFrame_SetStackPointer(frame, stack_pointer); \
+         frame->prev_instr = next_instr - 1;             \
+         (NEW_FRAME)->previous = frame;                  \
+diff --git a/Python/generated_cases.c.h b/Python/generated_cases.c.h
+index 246d37e7..57f1144e 100644
+--- a/Python/generated_cases.c.h
++++ b/Python/generated_cases.c.h
+@@ -707,7 +707,7 @@
+             PyObject *sub = stack_pointer[-1];
+             PyObject *container = stack_pointer[-2];
+             #line 496 "Python/bytecodes.c"
+-            DEOPT_IF(tstate->interp->eval_frame, BINARY_SUBSCR);
++            DEOPT_IF(!FRAME_EVAL_SPECIALIZATION_ALLOWED(tstate), BINARY_SUBSCR);
+             PyTypeObject *tp = Py_TYPE(container);
+             DEOPT_IF(!PyType_HasFeature(tp, Py_TPFLAGS_HEAPTYPE), BINARY_SUBSCR);
+             PyHeapTypeObject *ht = (PyHeapTypeObject *)tp;
+@@ -1159,7 +1159,7 @@
+             DECREMENT_ADAPTIVE_COUNTER(cache->counter);
+             #endif  /* ENABLE_SPECIALIZATION */
+             assert(frame != &entry_frame);
+-            if ((tstate->interp->eval_frame == NULL) &&
++            if (FRAME_EVAL_SPECIALIZATION_ALLOWED(tstate) &&
+                 (Py_TYPE(receiver) == &PyGen_Type || Py_TYPE(receiver) == &PyCoro_Type) &&
+                 ((PyGenObject *)receiver)->gi_frame_state < FRAME_EXECUTING)
+             {
+@@ -1204,7 +1204,7 @@
+             PyObject *v = stack_pointer[-1];
+             PyObject *receiver = stack_pointer[-2];
+             #line 875 "Python/bytecodes.c"
+-            DEOPT_IF(tstate->interp->eval_frame, SEND);
++            DEOPT_IF(!FRAME_EVAL_SPECIALIZATION_ALLOWED(tstate), SEND);
+             PyGenObject *gen = (PyGenObject *)receiver;
+             DEOPT_IF(Py_TYPE(gen) != &PyGen_Type &&
+                      Py_TYPE(gen) != &PyCoro_Type, SEND);
+@@ -2638,7 +2638,7 @@
+             uint32_t func_version = read_u32(&next_instr[3].cache);
+             PyObject *fget = read_obj(&next_instr[5].cache);
+             #line 1899 "Python/bytecodes.c"
+-            DEOPT_IF(tstate->interp->eval_frame, LOAD_ATTR);
++            DEOPT_IF(!FRAME_EVAL_SPECIALIZATION_ALLOWED(tstate), LOAD_ATTR);
+ 
+             PyTypeObject *cls = Py_TYPE(owner);
+             DEOPT_IF(cls->tp_version_tag != type_version, LOAD_ATTR);
+@@ -2670,7 +2670,7 @@
+             uint32_t func_version = read_u32(&next_instr[3].cache);
+             PyObject *getattribute = read_obj(&next_instr[5].cache);
+             #line 1925 "Python/bytecodes.c"
+-            DEOPT_IF(tstate->interp->eval_frame, LOAD_ATTR);
++            DEOPT_IF(!FRAME_EVAL_SPECIALIZATION_ALLOWED(tstate), LOAD_ATTR);
+             PyTypeObject *cls = Py_TYPE(owner);
+             DEOPT_IF(cls->tp_version_tag != type_version, LOAD_ATTR);
+             assert(type_version != 0);
+@@ -3431,7 +3431,7 @@
+         TARGET(FOR_ITER_GEN) {
+             PyObject *iter = stack_pointer[-1];
+             #line 2438 "Python/bytecodes.c"
+-            DEOPT_IF(tstate->interp->eval_frame, FOR_ITER);
++            DEOPT_IF(!FRAME_EVAL_SPECIALIZATION_ALLOWED(tstate), FOR_ITER);
+             PyGenObject *gen = (PyGenObject *)iter;
+             DEOPT_IF(Py_TYPE(gen) != &PyGen_Type, FOR_ITER);
+             DEOPT_IF(gen->gi_frame_state >= FRAME_EXECUTING, FOR_ITER);
+@@ -3745,7 +3745,7 @@
+             int positional_args = total_args - KWNAMES_LEN();
+             // Check if the call can be inlined or not
+             if (Py_TYPE(callable) == &PyFunction_Type &&
+-                tstate->interp->eval_frame == NULL &&
++                FRAME_EVAL_SPECIALIZATION_ALLOWED(tstate) &&
+                 ((PyFunctionObject *)callable)->vectorcall == _PyFunction_Vectorcall)
+             {
+                 int code_flags = ((PyCodeObject*)PyFunction_GET_CODE(callable))->co_flags;
+@@ -3828,7 +3828,7 @@
+             uint32_t func_version = read_u32(&next_instr[1].cache);
+             #line 2762 "Python/bytecodes.c"
+             assert(kwnames == NULL);
+-            DEOPT_IF(tstate->interp->eval_frame, CALL);
++            DEOPT_IF(!FRAME_EVAL_SPECIALIZATION_ALLOWED(tstate), CALL);
+             int is_meth = method != NULL;
+             int argcount = oparg;
+             if (is_meth) {
+@@ -3862,7 +3862,7 @@
+             uint32_t func_version = read_u32(&next_instr[1].cache);
+             #line 2790 "Python/bytecodes.c"
+             assert(kwnames == NULL);
+-            DEOPT_IF(tstate->interp->eval_frame, CALL);
++            DEOPT_IF(!FRAME_EVAL_SPECIALIZATION_ALLOWED(tstate), CALL);
+             int is_meth = method != NULL;
+             int argcount = oparg;
+             if (is_meth) {
+@@ -4468,7 +4468,7 @@
+             }
+             else {
+                 if (Py_TYPE(func) == &PyFunction_Type &&
+-                    tstate->interp->eval_frame == NULL &&
++                    FRAME_EVAL_SPECIALIZATION_ALLOWED(tstate) &&
+                     ((PyFunctionObject *)func)->vectorcall == _PyFunction_Vectorcall) {
+                     assert(PyTuple_CheckExact(callargs));
+                     Py_ssize_t nargs = PyTuple_GET_SIZE(callargs);
+diff --git a/Python/instrumentation.c b/Python/instrumentation.c
+index 2f94f103..e691daef 100644
+--- a/Python/instrumentation.c
++++ b/Python/instrumentation.c
+@@ -13,20 +13,10 @@
+ #include "pycore_pyerrors.h"
+ #include "pycore_pystate.h"
+ 
+-/* Uncomment this to dump debugging output when assertions fail */
+-// #define INSTRUMENT_DEBUG 1
+-
+-PyObject _PyInstrumentation_DISABLE =
+-{
+-    .ob_refcnt = _Py_IMMORTAL_REFCNT,
+-    .ob_type = &PyBaseObject_Type
+-};
+-
+-PyObject _PyInstrumentation_MISSING =
+-{
+-    .ob_refcnt = _Py_IMMORTAL_REFCNT,
+-    .ob_type = &PyBaseObject_Type
+-};
++extern PyObject *frame_eval_monitoring_disable;
++extern PyObject *frame_eval_monitoring_missing;
++#define _PyInstrumentation_DISABLE (*frame_eval_monitoring_disable)
++#define _PyInstrumentation_MISSING (*frame_eval_monitoring_missing)
+ 
+ static const int8_t EVENT_FOR_OPCODE[256] = {
+     [RETURN_CONST] = PY_MONITORING_EVENT_PY_RETURN,
+diff --git a/Python/specialize.c b/Python/specialize.c
+index 2c0d99b0..3ae8ea6b 100644
+--- a/Python/specialize.c
++++ b/Python/specialize.c
+@@ -787,7 +787,7 @@ _Py_Specialize_LoadAttr(PyObject *owner, _Py_CODEUNIT *instr, PyObject *name)
+             if (version == 0) {
+                 goto fail;
+             }
+-            if (_PyInterpreterState_GET()->eval_frame) {
++            if (!FRAME_EVAL_SPECIALIZATION_ALLOWED_INTERP(_PyInterpreterState_GET())) {
+                 SPECIALIZATION_FAIL(LOAD_ATTR, SPEC_FAIL_OTHER);
+                 goto fail;
+             }
+@@ -853,7 +853,7 @@ _Py_Specialize_LoadAttr(PyObject *owner, _Py_CODEUNIT *instr, PyObject *name)
+             if (version == 0) {
+                 goto fail;
+             }
+-            if (_PyInterpreterState_GET()->eval_frame) {
++            if (!FRAME_EVAL_SPECIALIZATION_ALLOWED_INTERP(_PyInterpreterState_GET())) {
+                 SPECIALIZATION_FAIL(LOAD_ATTR, SPEC_FAIL_OTHER);
+                 goto fail;
+             }
+@@ -1401,7 +1401,7 @@ _Py_Specialize_BinarySubscr(
+             SPECIALIZATION_FAIL(BINARY_SUBSCR, SPEC_FAIL_OUT_OF_VERSIONS);
+             goto fail;
+         }
+-        if (_PyInterpreterState_GET()->eval_frame) {
++        if (!FRAME_EVAL_SPECIALIZATION_ALLOWED_INTERP(_PyInterpreterState_GET())) {
+             SPECIALIZATION_FAIL(BINARY_SUBSCR, SPEC_FAIL_OTHER);
+             goto fail;
+         }
+@@ -1674,7 +1674,7 @@ specialize_py_call(PyFunctionObject *func, _Py_CODEUNIT *instr, int nargs,
+     PyCodeObject *code = (PyCodeObject *)func->func_code;
+     int kind = function_kind(code);
+     /* Don't specialize if PEP 523 is active */
+-    if (_PyInterpreterState_GET()->eval_frame) {
++    if (!FRAME_EVAL_SPECIALIZATION_ALLOWED_INTERP(_PyInterpreterState_GET())) {
+         SPECIALIZATION_FAIL(CALL, SPEC_FAIL_CALL_PEP_523);
+         return -1;
+     }
+@@ -2226,7 +2226,7 @@ _Py_Specialize_ForIter(PyObject *iter, _Py_CODEUNIT *instr, int oparg)
+         assert(instr[oparg + INLINE_CACHE_ENTRIES_FOR_ITER + 1].op.code == END_FOR  ||
+             instr[oparg + INLINE_CACHE_ENTRIES_FOR_ITER + 1].op.code == INSTRUMENTED_END_FOR
+         );
+-        if (_PyInterpreterState_GET()->eval_frame) {
++        if (!FRAME_EVAL_SPECIALIZATION_ALLOWED_INTERP(_PyInterpreterState_GET())) {
+             SPECIALIZATION_FAIL(FOR_ITER, SPEC_FAIL_OTHER);
+             goto failure;
+         }
+@@ -2253,7 +2253,7 @@ _Py_Specialize_Send(PyObject *receiver, _Py_CODEUNIT *instr)
+     _PySendCache *cache = (_PySendCache *)(instr + 1);
+     PyTypeObject *tp = Py_TYPE(receiver);
+     if (tp == &PyGen_Type || tp == &PyCoro_Type) {
+-        if (_PyInterpreterState_GET()->eval_frame) {
++        if (!FRAME_EVAL_SPECIALIZATION_ALLOWED_INTERP(_PyInterpreterState_GET())) {
+             SPECIALIZATION_FAIL(SEND, SPEC_FAIL_OTHER);
+             goto failure;
+         }

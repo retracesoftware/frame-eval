@@ -1,0 +1,410 @@
+diff --git a/Include/internal/pycore_pystate.h b/Include/internal/pycore_pystate.h
+index b0e72523..4bbceba0 100644
+--- a/Include/internal/pycore_pystate.h
++++ b/Include/internal/pycore_pystate.h
+@@ -136,12 +136,16 @@ PyAPI_FUNC(PyThreadState *) _PyThreadState_GetCurrent(void);
+ static inline PyThreadState*
+ _PyThreadState_GET(void)
+ {
+-#if defined(HAVE_THREAD_LOCAL) && !defined(Py_BUILD_CORE_MODULE)
+-    return _Py_tss_tstate;
+-#else
+-    return _PyThreadState_GetCurrent();
+-#endif
++    return _PyThreadState_UncheckedGet();
+ }
++#define FRAME_EVAL_SPECIALIZATION_ALLOWED_INTERP(interp) \
++    ((interp)->eval_frame == NULL || \
++     (interp)->eval_frame == _PyEval_EvalFrameDefault)
++#define FRAME_EVAL_SPECIALIZATION_ALLOWED(tstate) \
++    FRAME_EVAL_SPECIALIZATION_ALLOWED_INTERP((tstate)->interp)
++extern getattrofunc frame_eval_slot_tp_getattr_hook;
++extern getattrofunc frame_eval_slot_tp_getattro;
++extern vectorcallfunc frame_eval_function_vectorcall;
+ 
+ // Attaches the current thread to the interpreter.
+ //
+diff --git a/Objects/dictobject.c b/Objects/dictobject.c
+index 3e0537c1..99b45d58 100644
+--- a/Objects/dictobject.c
++++ b/Objects/dictobject.c
+@@ -628,22 +628,9 @@ estimate_log2_keysize(Py_ssize_t n)
+  * See https://github.com/python/cpython/pull/127568#discussion_r1868070614
+  * for the rationale of using dk_log2_index_bytes=3 instead of 0.
+  */
+-static PyDictKeysObject empty_keys_struct = {
+-        _Py_IMMORTAL_REFCNT, /* dk_refcnt */
+-        0, /* dk_log2_size */
+-        3, /* dk_log2_index_bytes */
+-        DICT_KEYS_UNICODE, /* dk_kind */
+-#ifdef Py_GIL_DISABLED
+-        {0}, /* dk_mutex */
+-#endif
+-        1, /* dk_version */
+-        0, /* dk_usable (immutable) */
+-        0, /* dk_nentries */
+-        {DKIX_EMPTY, DKIX_EMPTY, DKIX_EMPTY, DKIX_EMPTY,
+-         DKIX_EMPTY, DKIX_EMPTY, DKIX_EMPTY, DKIX_EMPTY}, /* dk_indices */
+-};
++extern PyDictKeysObject *frame_eval_empty_keys;
+ 
+-#define Py_EMPTY_KEYS &empty_keys_struct
++#define Py_EMPTY_KEYS frame_eval_empty_keys
+ 
+ /* Uncomment to check the dict content in _PyDict_CheckConsistency() */
+ // #define DEBUG_PYDICT
+diff --git a/Objects/typevarobject.c b/Objects/typevarobject.c
+index 1398f911..8dec4fb9 100644
+--- a/Objects/typevarobject.c
++++ b/Objects/typevarobject.c
+@@ -4,6 +4,8 @@
+ #include "pycore_typevarobject.h"
+ #include "pycore_unionobject.h"   // _Py_union_type_or
+ 
++extern PyTypeObject *frame_eval_typealias_type;
++
+ 
+ /*[clinic input]
+ class typevar "typevarobject *" "&_PyTypeVar_Type"
+@@ -1643,7 +1645,7 @@ static typealiasobject *
+ typealias_alloc(PyObject *name, PyObject *type_params, PyObject *compute_value,
+                 PyObject *value, PyObject *module)
+ {
+-    typealiasobject *ta = PyObject_GC_New(typealiasobject, &_PyTypeAlias_Type);
++    typealiasobject *ta = PyObject_GC_New(typealiasobject, frame_eval_typealias_type);
+     if (ta == NULL) {
+         return NULL;
+     }
+diff --git a/Objects/unionobject.c b/Objects/unionobject.c
+index 79103bc2..3360cf2c 100644
+--- a/Objects/unionobject.c
++++ b/Objects/unionobject.c
+@@ -4,6 +4,9 @@
+ #include "pycore_typevarobject.h"  // _PyTypeAlias_Type
+ #include "pycore_unionobject.h"
+ 
++extern PyTypeObject *frame_eval_typealias_type;
++extern PyTypeObject *frame_eval_union_type;
++
+ 
+ 
+ static PyObject *make_union(PyObject *);
+@@ -152,7 +155,7 @@ is_unionable(PyObject *obj)
+         PyType_Check(obj) ||
+         _PyGenericAlias_Check(obj) ||
+         _PyUnion_Check(obj) ||
+-        Py_IS_TYPE(obj, &_PyTypeAlias_Type)) {
++        Py_IS_TYPE(obj, frame_eval_typealias_type)) {
+         return 1;
+     }
+     return 0;
+@@ -398,7 +401,7 @@ make_union(PyObject *args)
+ {
+     assert(PyTuple_CheckExact(args));
+ 
+-    unionobject *result = PyObject_GC_New(unionobject, &_PyUnion_Type);
++    unionobject *result = PyObject_GC_New(unionobject, frame_eval_union_type);
+     if (result == NULL) {
+         return NULL;
+     }
+diff --git a/Python/ceval.c b/Python/ceval.c
+index ca07bfba..c3bedfa2 100644
+--- a/Python/ceval.c
++++ b/Python/ceval.c
+@@ -23,6 +23,12 @@
+ #include "pycore_pyatomic_ft_wrappers.h" // FT_ATOMIC_*
+ #include "pycore_pyerrors.h"      // _PyErr_GetRaisedException()
+ #include "pycore_pystate.h"       // _PyInterpreterState_GET()
++extern PyObject *frame_eval_monitoring_disable;
++extern PyObject *frame_eval_monitoring_missing;
++#define _PyInstrumentation_DISABLE (*frame_eval_monitoring_disable)
++#define _PyInstrumentation_MISSING (*frame_eval_monitoring_missing)
++#define _PyFunction_Vectorcall frame_eval_function_vectorcall
++
+ #include "pycore_range.h"         // _PyRangeIterObject
+ #include "pycore_setobject.h"     // _PySet_Update()
+ #include "pycore_sliceobject.h"   // _PyBuildSlice_ConsumeRefs
+diff --git a/Python/ceval_macros.h b/Python/ceval_macros.h
+index 1ab83856..43ea9011 100644
+--- a/Python/ceval_macros.h
++++ b/Python/ceval_macros.h
+@@ -122,7 +122,7 @@ do { \
+ 
+ #define DISPATCH_INLINED(NEW_FRAME)                     \
+     do {                                                \
+-        assert(tstate->interp->eval_frame == NULL);     \
++        assert(FRAME_EVAL_SPECIALIZATION_ALLOWED(tstate));     \
+         _PyFrame_SetStackPointer(frame, stack_pointer); \
+         (NEW_FRAME)->previous = frame;                  \
+         frame = tstate->current_frame = (NEW_FRAME);     \
+diff --git a/Python/generated_cases.c.h b/Python/generated_cases.c.h
+index d21499b2..9122820e 100644
+--- a/Python/generated_cases.c.h
++++ b/Python/generated_cases.c.h
+@@ -489,7 +489,7 @@
+             /* Skip 1 cache entry */
+             sub = stack_pointer[-1];
+             container = stack_pointer[-2];
+-            DEOPT_IF(tstate->interp->eval_frame, BINARY_SUBSCR);
++            DEOPT_IF(!FRAME_EVAL_SPECIALIZATION_ALLOWED(tstate), BINARY_SUBSCR);
+             PyTypeObject *tp = Py_TYPE(container);
+             DEOPT_IF(!PyType_HasFeature(tp, Py_TPFLAGS_HEAPTYPE), BINARY_SUBSCR);
+             PyHeapTypeObject *ht = (PyHeapTypeObject *)tp;
+@@ -790,7 +790,7 @@
+                 }
+                 // Check if the call can be inlined or not
+                 if (Py_TYPE(callable) == &PyFunction_Type &&
+-                    tstate->interp->eval_frame == NULL &&
++                    FRAME_EVAL_SPECIALIZATION_ALLOWED(tstate) &&
+                     ((PyFunctionObject *)callable)->vectorcall == _PyFunction_Vectorcall)
+                 {
+                     int code_flags = ((PyCodeObject*)PyFunction_GET_CODE(callable))->co_flags;
+@@ -927,7 +927,7 @@
+             /* Skip 1 cache entry */
+             // _CHECK_PEP_523
+             {
+-                DEOPT_IF(tstate->interp->eval_frame, CALL);
++                DEOPT_IF(!FRAME_EVAL_SPECIALIZATION_ALLOWED(tstate), CALL);
+             }
+             // _CHECK_CALL_BOUND_METHOD_EXACT_ARGS
+             null = stack_pointer[-1 - oparg];
+@@ -993,7 +993,7 @@
+             {
+                 // Write it out explicitly because it's subtly different.
+                 // Eventually this should be the only occurrence of this code.
+-                assert(tstate->interp->eval_frame == NULL);
++                assert(FRAME_EVAL_SPECIALIZATION_ALLOWED(tstate));
+                 stack_pointer += -2 - oparg;
+                 _PyFrame_SetStackPointer(frame, stack_pointer);
+                 new_frame->previous = frame;
+@@ -1022,7 +1022,7 @@
+             /* Skip 1 cache entry */
+             // _CHECK_PEP_523
+             {
+-                DEOPT_IF(tstate->interp->eval_frame, CALL);
++                DEOPT_IF(!FRAME_EVAL_SPECIALIZATION_ALLOWED(tstate), CALL);
+             }
+             // _CHECK_METHOD_VERSION
+             null = stack_pointer[-1 - oparg];
+@@ -1089,7 +1089,7 @@
+             {
+                 // Write it out explicitly because it's subtly different.
+                 // Eventually this should be the only occurrence of this code.
+-                assert(tstate->interp->eval_frame == NULL);
++                assert(FRAME_EVAL_SPECIALIZATION_ALLOWED(tstate));
+                 _PyFrame_SetStackPointer(frame, stack_pointer);
+                 new_frame->previous = frame;
+                 CALL_STAT_INC(inlined_py_calls);
+@@ -1341,7 +1341,7 @@
+             }
+             else {
+                 if (Py_TYPE(func) == &PyFunction_Type &&
+-                    tstate->interp->eval_frame == NULL &&
++                    FRAME_EVAL_SPECIALIZATION_ALLOWED(tstate) &&
+                     ((PyFunctionObject *)func)->vectorcall == _PyFunction_Vectorcall) {
+                     assert(PyTuple_CheckExact(callargs));
+                     Py_ssize_t nargs = PyTuple_GET_SIZE(callargs);
+@@ -1484,7 +1484,7 @@
+             int positional_args = total_args - (int)PyTuple_GET_SIZE(kwnames);
+             // Check if the call can be inlined or not
+             if (Py_TYPE(callable) == &PyFunction_Type &&
+-                tstate->interp->eval_frame == NULL &&
++                FRAME_EVAL_SPECIALIZATION_ALLOWED(tstate) &&
+                 ((PyFunctionObject *)callable)->vectorcall == _PyFunction_Vectorcall)
+             {
+                 int code_flags = ((PyCodeObject*)PyFunction_GET_CODE(callable))->co_flags;
+@@ -1879,7 +1879,7 @@
+             /* Skip 1 cache entry */
+             // _CHECK_PEP_523
+             {
+-                DEOPT_IF(tstate->interp->eval_frame, CALL);
++                DEOPT_IF(!FRAME_EVAL_SPECIALIZATION_ALLOWED(tstate), CALL);
+             }
+             // _CHECK_FUNCTION_EXACT_ARGS
+             self_or_null = stack_pointer[-1 - oparg];
+@@ -1929,7 +1929,7 @@
+             {
+                 // Write it out explicitly because it's subtly different.
+                 // Eventually this should be the only occurrence of this code.
+-                assert(tstate->interp->eval_frame == NULL);
++                assert(FRAME_EVAL_SPECIALIZATION_ALLOWED(tstate));
+                 stack_pointer += -2 - oparg;
+                 _PyFrame_SetStackPointer(frame, stack_pointer);
+                 new_frame->previous = frame;
+@@ -1955,7 +1955,7 @@
+             /* Skip 1 cache entry */
+             // _CHECK_PEP_523
+             {
+-                DEOPT_IF(tstate->interp->eval_frame, CALL);
++                DEOPT_IF(!FRAME_EVAL_SPECIALIZATION_ALLOWED(tstate), CALL);
+             }
+             // _CHECK_FUNCTION_VERSION
+             callable = stack_pointer[-2 - oparg];
+@@ -2006,7 +2006,7 @@
+             {
+                 // Write it out explicitly because it's subtly different.
+                 // Eventually this should be the only occurrence of this code.
+-                assert(tstate->interp->eval_frame == NULL);
++                assert(FRAME_EVAL_SPECIALIZATION_ALLOWED(tstate));
+                 _PyFrame_SetStackPointer(frame, stack_pointer);
+                 new_frame->previous = frame;
+                 CALL_STAT_INC(inlined_py_calls);
+@@ -2837,7 +2837,7 @@
+             /* Skip 1 cache entry */
+             // _CHECK_PEP_523
+             {
+-                DEOPT_IF(tstate->interp->eval_frame, FOR_ITER);
++                DEOPT_IF(!FRAME_EVAL_SPECIALIZATION_ALLOWED(tstate), FOR_ITER);
+             }
+             // _FOR_ITER_GEN_FRAME
+             iter = stack_pointer[-1];
+@@ -2859,7 +2859,7 @@
+             {
+                 // Write it out explicitly because it's subtly different.
+                 // Eventually this should be the only occurrence of this code.
+-                assert(tstate->interp->eval_frame == NULL);
++                assert(FRAME_EVAL_SPECIALIZATION_ALLOWED(tstate));
+                 _PyFrame_SetStackPointer(frame, stack_pointer);
+                 new_frame->previous = frame;
+                 CALL_STAT_INC(inlined_py_calls);
+@@ -3837,7 +3837,7 @@
+             uint32_t func_version = read_u32(&this_instr[4].cache);
+             PyObject *getattribute = read_obj(&this_instr[6].cache);
+             assert((oparg & 1) == 0);
+-            DEOPT_IF(tstate->interp->eval_frame, LOAD_ATTR);
++            DEOPT_IF(!FRAME_EVAL_SPECIALIZATION_ALLOWED(tstate), LOAD_ATTR);
+             PyTypeObject *cls = Py_TYPE(owner);
+             assert(type_version != 0);
+             DEOPT_IF(cls->tp_version_tag != type_version, LOAD_ATTR);
+@@ -4146,7 +4146,7 @@
+             uint32_t func_version = read_u32(&this_instr[4].cache);
+             PyObject *fget = read_obj(&this_instr[6].cache);
+             assert((oparg & 1) == 0);
+-            DEOPT_IF(tstate->interp->eval_frame, LOAD_ATTR);
++            DEOPT_IF(!FRAME_EVAL_SPECIALIZATION_ALLOWED(tstate), LOAD_ATTR);
+             PyTypeObject *cls = Py_TYPE(owner);
+             assert(type_version != 0);
+             DEOPT_IF(cls->tp_version_tag != type_version, LOAD_ATTR);
+@@ -5321,7 +5321,7 @@
+             v = stack_pointer[-1];
+             {
+                 assert(frame != &entry_frame);
+-                if ((tstate->interp->eval_frame == NULL) &&
++                if ((FRAME_EVAL_SPECIALIZATION_ALLOWED(tstate)) &&
+                     (Py_TYPE(receiver) == &PyGen_Type || Py_TYPE(receiver) == &PyCoro_Type) &&
+                     ((PyGenObject *)receiver)->gi_frame_state < FRAME_EXECUTING)
+                 {
+@@ -5371,7 +5371,7 @@
+             /* Skip 1 cache entry */
+             v = stack_pointer[-1];
+             receiver = stack_pointer[-2];
+-            DEOPT_IF(tstate->interp->eval_frame, SEND);
++            DEOPT_IF(!FRAME_EVAL_SPECIALIZATION_ALLOWED(tstate), SEND);
+             PyGenObject *gen = (PyGenObject *)receiver;
+             DEOPT_IF(Py_TYPE(gen) != &PyGen_Type && Py_TYPE(gen) != &PyCoro_Type, SEND);
+             DEOPT_IF(gen->gi_frame_state >= FRAME_EXECUTING, SEND);
+diff --git a/Python/instrumentation.c b/Python/instrumentation.c
+index 21d9692b..f3e20b83 100644
+--- a/Python/instrumentation.c
++++ b/Python/instrumentation.c
+@@ -51,9 +51,10 @@
+ 
+ #endif
+ 
+-PyObject _PyInstrumentation_DISABLE = _PyObject_HEAD_INIT(&PyBaseObject_Type);
+-
+-PyObject _PyInstrumentation_MISSING = _PyObject_HEAD_INIT(&PyBaseObject_Type);
++extern PyObject *frame_eval_monitoring_disable;
++extern PyObject *frame_eval_monitoring_missing;
++#define _PyInstrumentation_DISABLE (*frame_eval_monitoring_disable)
++#define _PyInstrumentation_MISSING (*frame_eval_monitoring_missing)
+ 
+ static const int8_t EVENT_FOR_OPCODE[256] = {
+     [RETURN_CONST] = PY_MONITORING_EVENT_PY_RETURN,
+diff --git a/Python/specialize.c b/Python/specialize.c
+index ad166ea0..a9b5dccf 100644
+--- a/Python/specialize.c
++++ b/Python/specialize.c
+@@ -744,8 +744,8 @@ analyze_descriptor(PyTypeObject *type, PyObject *name, PyObject **descr, int sto
+             /* Normal attribute lookup; */
+             has_getattr = false;
+         }
+-        else if (getattro_slot == _Py_slot_tp_getattr_hook ||
+-            getattro_slot == _Py_slot_tp_getattro) {
++        else if (getattro_slot == frame_eval_slot_tp_getattr_hook ||
++            getattro_slot == frame_eval_slot_tp_getattro) {
+             /* One or both of __getattribute__ or __getattr__ may have been
+              overridden See typeobject.c for why these functions are special. */
+             PyObject *getattribute = _PyType_Lookup(type,
+@@ -755,7 +755,7 @@ analyze_descriptor(PyTypeObject *type, PyObject *name, PyObject **descr, int sto
+                 getattribute != interp->callable_cache.object__getattribute__;
+             has_getattr = _PyType_Lookup(type, &_Py_ID(__getattr__)) != NULL;
+             if (has_custom_getattribute) {
+-                if (getattro_slot == _Py_slot_tp_getattro &&
++                if (getattro_slot == frame_eval_slot_tp_getattro &&
+                     !has_getattr &&
+                     Py_IS_TYPE(getattribute, &PyFunction_Type)) {
+                     *descr = getattribute;
+@@ -965,7 +965,7 @@ _Py_Specialize_LoadAttr(PyObject *owner, _Py_CODEUNIT *instr, PyObject *name)
+             if (version == 0) {
+                 goto fail;
+             }
+-            if (_PyInterpreterState_GET()->eval_frame) {
++            if (!FRAME_EVAL_SPECIALIZATION_ALLOWED_INTERP(_PyInterpreterState_GET())) {
+                 SPECIALIZATION_FAIL(LOAD_ATTR, SPEC_FAIL_OTHER);
+                 goto fail;
+             }
+@@ -1021,7 +1021,7 @@ _Py_Specialize_LoadAttr(PyObject *owner, _Py_CODEUNIT *instr, PyObject *name)
+             goto fail;
+         case GETATTRIBUTE_IS_PYTHON_FUNCTION:
+         {
+-            assert(type->tp_getattro == _Py_slot_tp_getattro);
++            assert(type->tp_getattro == frame_eval_slot_tp_getattro);
+             assert(Py_IS_TYPE(descr, &PyFunction_Type));
+             _PyLoadMethodCache *lm_cache = (_PyLoadMethodCache *)(instr + 1);
+             if (!function_check_args(descr, 2, LOAD_ATTR)) {
+@@ -1035,7 +1035,7 @@ _Py_Specialize_LoadAttr(PyObject *owner, _Py_CODEUNIT *instr, PyObject *name)
+             if (version == 0) {
+                 goto fail;
+             }
+-            if (_PyInterpreterState_GET()->eval_frame) {
++            if (!FRAME_EVAL_SPECIALIZATION_ALLOWED_INTERP(_PyInterpreterState_GET())) {
+                 SPECIALIZATION_FAIL(LOAD_ATTR, SPEC_FAIL_OTHER);
+                 goto fail;
+             }
+@@ -1601,7 +1601,7 @@ _Py_Specialize_BinarySubscr(
+             SPECIALIZATION_FAIL(BINARY_SUBSCR, SPEC_FAIL_OUT_OF_VERSIONS);
+             goto fail;
+         }
+-        if (_PyInterpreterState_GET()->eval_frame) {
++        if (!FRAME_EVAL_SPECIALIZATION_ALLOWED_INTERP(_PyInterpreterState_GET())) {
+             SPECIALIZATION_FAIL(BINARY_SUBSCR, SPEC_FAIL_OTHER);
+             goto fail;
+         }
+@@ -1872,7 +1872,7 @@ specialize_py_call(PyFunctionObject *func, _Py_CODEUNIT *instr, int nargs,
+     PyCodeObject *code = (PyCodeObject *)func->func_code;
+     int kind = function_kind(code);
+     /* Don't specialize if PEP 523 is active */
+-    if (_PyInterpreterState_GET()->eval_frame) {
++    if (!FRAME_EVAL_SPECIALIZATION_ALLOWED_INTERP(_PyInterpreterState_GET())) {
+         SPECIALIZATION_FAIL(CALL, SPEC_FAIL_CALL_PEP_523);
+         return -1;
+     }
+@@ -2366,7 +2366,7 @@ _Py_Specialize_ForIter(PyObject *iter, _Py_CODEUNIT *instr, int oparg)
+         assert(instr[oparg + INLINE_CACHE_ENTRIES_FOR_ITER + 1].op.code == END_FOR  ||
+             instr[oparg + INLINE_CACHE_ENTRIES_FOR_ITER + 1].op.code == INSTRUMENTED_END_FOR
+         );
+-        if (_PyInterpreterState_GET()->eval_frame) {
++        if (!FRAME_EVAL_SPECIALIZATION_ALLOWED_INTERP(_PyInterpreterState_GET())) {
+             SPECIALIZATION_FAIL(FOR_ITER, SPEC_FAIL_OTHER);
+             goto failure;
+         }
+@@ -2393,7 +2393,7 @@ _Py_Specialize_Send(PyObject *receiver, _Py_CODEUNIT *instr)
+     _PySendCache *cache = (_PySendCache *)(instr + 1);
+     PyTypeObject *tp = Py_TYPE(receiver);
+     if (tp == &PyGen_Type || tp == &PyCoro_Type) {
+-        if (_PyInterpreterState_GET()->eval_frame) {
++        if (!FRAME_EVAL_SPECIALIZATION_ALLOWED_INTERP(_PyInterpreterState_GET())) {
+             SPECIALIZATION_FAIL(SEND, SPEC_FAIL_OTHER);
+             goto failure;
+         }

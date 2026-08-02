@@ -91,4 +91,30 @@ module initialization, and verifies the active pointer.
 no-argument form runs the standard suite in parallel with a per-test timeout
 and the reviewed exact-release exclusions in `tests/exclusions/<version>.txt`.
 
+## Benchmark an evaluator
+
+Run the pyperformance suite against the vanilla interpreter and then against
+the same interpreter with the generated evaluator installed:
+
+```bash
+./benchmark 3.12.8
+```
+
+The paired results are written to `build/v3.12.8/pyperformance` as
+`baseline.json`, `frame-eval.json`, and `compare.txt`. Additional arguments are
+passed to `pyperformance run`, so a focused smoke run can use:
+
+```bash
+./benchmark 3.12.8 --benchmarks python_startup
+```
+
+The suite version is pinned in `requirements-benchmark.txt` so results remain
+comparable across patch releases.
+
+Using one optimized CPython build for both runs isolates the evaluator cost
+from compiler and build variation. The exact-release workflow benchmarks by
+default when manually dispatched, publishes the comparison in its job summary,
+and retains both raw result files as an artifact for 90 days. Reusable and
+all-version workflow calls skip benchmarks unless requested.
+
 Copied CPython files are distributed under [LICENSE](LICENSE).
