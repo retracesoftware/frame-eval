@@ -56,11 +56,17 @@ private Python environment under `build/.venv` using
 A version is supported only when its exact patch exists. This intentionally
 prevents silently applying one patch release's assumptions to another.
 
-The `Regenerate sources` workflow accepts an exact CPython version and commits
-the resulting snapshot to the branch from which it was run. Regeneration builds
-in a staging directory and replaces `sources/<version>` as a whole; the
-workflow stages that directory with `git add -A`, so files no longer selected
-by a newer extraction regime are committed as deletions rather than retained.
+The `Build source set` workflow generates and validates one exact release, then
+uploads `build/workflow/frame-eval-<version>.tar.gz` as a workflow artifact. It
+does not modify the repository.
+
+Run the `Update source sets` workflow to update every supported release. It
+derives a matrix from `patches/*.patch`, invokes `Build source set` for each
+version, and waits for the complete matrix to succeed. Its final job downloads
+all artifacts, deletes `sources/`, extracts exactly the successful source sets,
+and commits the complete replacement once. Deleting the destination first
+ensures files and release directories that are no longer generated cannot
+remain stale.
 
 ## Validate an existing snapshot
 
