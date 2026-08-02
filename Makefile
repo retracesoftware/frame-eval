@@ -6,10 +6,12 @@ GENERATOR_INPUTS := regenerate \
 	extract.py \
 	validate \
 	requirements.txt \
+	templates/frame_eval.c \
+	templates/frame_eval.h \
 	templates/retrace_redacted.h \
 	patches/$(VERSION).patch
 
-.PHONY: all frame-eval-sources regenerate-frame-eval test
+.PHONY: all frame-eval-sources regenerate-frame-eval test test-generated
 all: frame-eval-sources
 
 frame-eval-sources: $(STAMP)
@@ -22,3 +24,6 @@ regenerate-frame-eval:
 
 test:
 	python3 -m unittest discover -s tests -v
+
+test-generated:
+	./test-generated $(VERSION)

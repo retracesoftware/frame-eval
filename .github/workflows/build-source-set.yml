@@ -56,6 +56,10 @@ jobs:
             exit 1
           fi
           make regenerate-frame-eval VERSION="${PYTHON_TAG#v}"
+      - name: Test generated evaluator against CPython
+        env:
+          PYTHON_TAG: ${{ inputs.python_tag }}
+        run: ./test-generated "${PYTHON_TAG#v}"
       - name: Package source set
         env:
           PYTHON_TAG: ${{ inputs.python_tag }}

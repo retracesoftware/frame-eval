@@ -89,8 +89,12 @@ fi
 mkdir -p "$staging/Include/internal"
 cp "$source_tree/Include/internal/pycore_pystate.h" \
     "$staging/Include/internal/pycore_pystate.h"
+cp "$workflow/templates/frame_eval.c" "$staging/frame_eval.c"
+cp "$workflow/templates/frame_eval.h" "$staging/Include/frame_eval.h"
 cp "$workflow/templates/retrace_redacted.h" \
     "$staging/Include/retrace_redacted.h"
+printf 'frame_eval.c\n' >> "$staging/sources.txt"
+sort -o "$staging/sources.txt" "$staging/sources.txt"
 
 SOURCE_TREE="$source_tree" \
 SNAPSHOT="$staging" \
@@ -109,6 +113,8 @@ OUTPUT_ROOT="$work/validate" \
         validate \
         requirements.txt \
         "patches/$version.patch" \
+        templates/frame_eval.c \
+        templates/frame_eval.h \
         templates/retrace_redacted.h
     do
         printf 'sha256:%s=%s\n' "$input" \

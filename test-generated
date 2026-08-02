@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ $# -lt 1 ]]; then
+    echo "usage: $0 VERSION [regrtest arguments...]" >&2
+    exit 2
+fi
+
+version=${1#v}
+shift
+root=$(cd "$(dirname "$0")" && pwd)
+source_tree="$root/build/v$version/cpython"
+archive="$root/build/v$version/validate/libpython-frame-eval.a"
+output="$root/build/v$version/test-extension"
+compiler=${CC:-cc}
+
+for path in "$source_tree/Makefile" "$source_tree/python" "$archive"; do
+    if [[ ! -e $path ]]; then
+        echo "missing prerequisite: $path" >&2
+        exit 1
+    fi
+done
+
+flags=$(env MAKEFLAGS= make -C "$source_tree" --no-print-directory -s \
+    --eval=$'print-frame-eval-flags:\n\t@printf "%s\\n" "$(PY_CORE_CFLAGS)"' \
+    print-frame-eval-flags | tail -n 1)
+ext_suffix=$(env MAKEFLAGS= make -C "$source_tree" --no-print-directory -s \
+    --eval=$'print-frame-eval-suffix:\n\t@printf "%s\\n" "$(EXT_SUFFIX)"' \
+    print-frame-eval-suffix | tail -n 1)
+extension="$output/_frame_eval_test$ext_suffix"
+
+rm -rf "$output"
+mkdir -p "$output"
+(
+    cd "$source_tree"
+    "$compiler" $flags -fPIC -I"$source_tree/Include" \
+        -I"$source_tree/Include/internal" \
+        -I"$root/build/workflow/sources/$version/Include" \
+        -c "$root/tests/frame_eval_test_module.c" -o "$output/module.o"
+)
+"$compiler" -shared -o "$extension" "$output/module.o" \
+    -Wl,--whole-archive "$archive" -Wl,--no-whole-archive \
+    -Wl,--exclude-libs,ALL
+
+bootstrap="$root/tests/bootstrap"
+env PYTHONPATH="$output:$bootstrap" "$source_tree/python" -c \
+    'import _frame_eval_test; assert _frame_eval_test.installed()'
+
+if [[ $# -eq 0 ]]; then
+    set -- -j0 --timeout=1200
+fi
+exec env PYTHONPATH="$output:$bootstrap" "$source_tree/python" -m test "$@"

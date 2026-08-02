@@ -8,9 +8,12 @@ This repository owns the reproducible source closure rooted at
 - `regenerate`: complete exact-release update workflow.
 - `extract.py`: libclang AST closure and source-range extraction.
 - `validate`: isolated compilation and host-export symbol audit.
+- `test-generated`: links the generated evaluator into a minimal extension and
+   runs the exact CPython regression suite with it installed at startup.
 - `patches/<version>.patch`: changes applied after building vanilla CPython but
   before extraction. These redirect process-owned state and shape the closure.
-- `templates/`: generated-tree support headers.
+- `templates/`: generated-tree support source and headers, including the
+   `frame_eval_init()` entry point that binds process-owned CPython state.
 - `archive_closure.py`: archive-level closure diagnostic used by unit tests.
 
 Generated source sets are workflow artifacts consumed and checked in by
@@ -73,5 +76,18 @@ LIBPYTHON_ARCHIVE=/path/to/libpython.a \
 
 The validator rejects `_Py_tss_tstate`, `_PyThreadState_SwapNoGIL`, and any
 external CPython symbol not exported by the matching executable.
+
+After regeneration, run focused or complete CPython tests with:
+
+```bash
+./test-generated 3.12.8 test_dict test_generators
+./test-generated 3.12.8
+```
+
+The test extension renames the copied root to `frame_eval_test`, calls the
+generated archive's `frame_eval_init()`, installs that exact function during
+module initialization, and verifies the active pointer.
+`sitecustomize` loads it in the test runner and inherited worker processes. The
+no-argument form runs the standard suite in parallel with a per-test timeout.
 
 Copied CPython files are distributed under [LICENSE](LICENSE).

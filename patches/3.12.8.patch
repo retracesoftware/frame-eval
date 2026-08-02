@@ -36,3 +36,76 @@
      }
  
      /* Check for asynchronous exception. */
+
+--- a/Objects/dictobject.c
++++ b/Objects/dictobject.c
+@@ -462,13 +462,3 @@
+-static PyDictKeysObject empty_keys_struct = {
+-        _Py_IMMORTAL_REFCNT, /* dk_refcnt */
+-        0, /* dk_log2_size */
+-        0, /* dk_log2_index_bytes */
+-        DICT_KEYS_UNICODE, /* dk_kind */
+-        1, /* dk_version */
+-        0, /* dk_usable (immutable) */
+-        0, /* dk_nentries */
+-        {DKIX_EMPTY, DKIX_EMPTY, DKIX_EMPTY, DKIX_EMPTY,
+-         DKIX_EMPTY, DKIX_EMPTY, DKIX_EMPTY, DKIX_EMPTY}, /* dk_indices */
+-};
+-
+-#define Py_EMPTY_KEYS &empty_keys_struct
++extern PyDictKeysObject *frame_eval_empty_keys;
++
++#define Py_EMPTY_KEYS frame_eval_empty_keys
+
+--- a/Objects/typevarobject.c
++++ b/Objects/typevarobject.c
+@@ -6,0 +7,2 @@
++
++extern PyTypeObject *frame_eval_typealias_type;
+@@ -1362 +1362 @@ typealias_alloc(PyObject *name, PyObject *type_params,
+-    typealiasobject *ta = PyObject_GC_New(typealiasobject, &_PyTypeAlias_Type);
++    typealiasobject *ta = PyObject_GC_New(typealiasobject, frame_eval_typealias_type);
+
+--- a/Objects/unionobject.c
++++ b/Objects/unionobject.c
+@@ -6,0 +7,3 @@
++
++extern PyTypeObject *frame_eval_typealias_type;
++extern PyTypeObject *frame_eval_union_type;
+@@ -155 +155 @@ is_unionable(PyObject *obj)
+-        Py_IS_TYPE(obj, &_PyTypeAlias_Type)) {
++        Py_IS_TYPE(obj, frame_eval_typealias_type)) {
+@@ -398 +398 @@ make_union(PyObject *args)
+-    unionobject *result = PyObject_GC_New(unionobject, &_PyUnion_Type);
++    unionobject *result = PyObject_GC_New(unionobject, frame_eval_union_type);
+
+--- a/Python/ceval.c
++++ b/Python/ceval.c
+@@ -27,0 +28,5 @@
++
++extern PyObject *frame_eval_monitoring_disable;
++extern PyObject *frame_eval_monitoring_missing;
++#define _PyInstrumentation_DISABLE (*frame_eval_monitoring_disable)
++#define _PyInstrumentation_MISSING (*frame_eval_monitoring_missing)
+
+--- a/Python/instrumentation.c
++++ b/Python/instrumentation.c
+@@ -16,14 +16,4 @@
+-/* Uncomment this to dump debugging output when assertions fail */
+-// #define INSTRUMENT_DEBUG 1
+-
+-PyObject _PyInstrumentation_DISABLE =
+-{
+-    .ob_refcnt = _Py_IMMORTAL_REFCNT,
+-    .ob_type = &PyBaseObject_Type
+-};
+-
+-PyObject _PyInstrumentation_MISSING =
+-{
+-    .ob_refcnt = _Py_IMMORTAL_REFCNT,
+-    .ob_type = &PyBaseObject_Type
+-};
++extern PyObject *frame_eval_monitoring_disable;
++extern PyObject *frame_eval_monitoring_missing;
++#define _PyInstrumentation_DISABLE (*frame_eval_monitoring_disable)
++#define _PyInstrumentation_MISSING (*frame_eval_monitoring_missing)

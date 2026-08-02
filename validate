@@ -11,7 +11,7 @@ root=$(cd "$(dirname "$0")" && pwd)
 compiler=${CC:-cc}
 source_tree=${SOURCE_TREE:-"$root/build/v$version/cpython"}
 snapshot=${SNAPSHOT:-"$root/build/workflow/sources/$version"}
-mode_root=${OUTPUT_ROOT:-"$root/build/validate/v$version"}
+mode_root=${OUTPUT_ROOT:-"$root/build/v$version/validate"}
 host=${HOST_PYTHON:-"$source_tree/python"}
 archive=${LIBPYTHON_ARCHIVE:-"$source_tree/libpython${version%.*}.a"}
 objects="$mode_root/obj"
@@ -45,6 +45,7 @@ while read -r relative; do
         "$compiler" -I"$snapshot/Include/internal" -I"$snapshot/Include" \
             -include "$snapshot/Include/retrace_redacted.h" \
             $flags \
+            -D_PyEval_EvalFrameDefault=frame_eval_test \
             -DSOABI=\"$soabi\" \
             -DPYTHONPATH=\"\" -DPREFIX=\"/usr/local\" \
             -DEXEC_PREFIX=\"/usr/local\" -DVERSION=\"$python_version\" \
