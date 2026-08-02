@@ -111,6 +111,10 @@ LIBPYTHON_ARCHIVE="$archive" \
 OUTPUT_ROOT="$work/validate" \
     "$workflow/validate" "$version"
 
+patch --reverse --batch --fuzz=0 --no-backup-if-mismatch \
+    -d "$source_tree" -p1 < "$patch_file"
+git -C "$source_tree" diff --exit-code
+
 {
     printf 'version=%s\n' "$version"
     printf 'cpython-tag=v%s\n' "$version"
