@@ -56,7 +56,8 @@ prevents silently applying one patch release's assumptions to another.
 
 The `Build source set` workflow accepts an immutable `frame-eval` ref and an
 exact CPython tag. It generates and validates that release, then uploads
-`build/workflow/frame-eval-<version>.tar.gz`. It never modifies a repository.
+`build/workflow/frame-eval-<version>.tar.gz` containing the source set and
+CPython license. It never modifies a repository.
 
 ## Validate an existing snapshot
 
