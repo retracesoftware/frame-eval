@@ -31,6 +31,6 @@ if [[ $# -eq 0 ]]; then
         fi
         exclusions+=("$test_name")
     done < "$exclusions_file"
-    set -- -j0 --timeout=1200 -x "${exclusions[@]}"
+    set -- -j0 -w --timeout=300 -x "${exclusions[@]}"
 fi
 exec env PYTHONPATH="$output:$bootstrap" "$source_tree/python" -m test "$@"

@@ -89,10 +89,14 @@ fi
 mkdir -p "$staging/Include/internal"
 cp "$source_tree/Include/internal/pycore_pystate.h" \
     "$staging/Include/internal/pycore_pystate.h"
-cp "$source_tree/Python/ceval_macros.h" \
-    "$staging/Python/ceval_macros.h"
-cp "$source_tree/Python/generated_cases.c.h" \
-    "$staging/Python/generated_cases.c.h"
+cp --archive --update=none "$source_tree/Include/." "$staging/Include/"
+cp "$source_tree/pyconfig.h" "$staging/pyconfig.h"
+for generated_header in ceval_macros.h generated_cases.c.h; do
+    if [[ -f $source_tree/Python/$generated_header ]]; then
+        cp "$source_tree/Python/$generated_header" \
+            "$staging/Python/$generated_header"
+    fi
+done
 cp "$workflow/templates/frame_eval.c" "$staging/frame_eval.c"
 cp "$workflow/templates/frame_eval.h" "$staging/Include/frame_eval.h"
 cp "$workflow/templates/retrace_redacted.h" \

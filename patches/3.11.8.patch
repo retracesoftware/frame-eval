@@ -1,0 +1,150 @@
+diff --git a/Include/internal/pycore_pystate.h b/Include/internal/pycore_pystate.h
+index 7c5aba12..6088fddc 100644
+--- a/Include/internal/pycore_pystate.h
++++ b/Include/internal/pycore_pystate.h
+@@ -88,8 +88,13 @@ _PyRuntimeState_GetThreadState(_PyRuntimeState *runtime)
+ static inline PyThreadState*
+ _PyThreadState_GET(void)
+ {
+-    return _PyRuntimeState_GetThreadState(&_PyRuntime);
++    return _PyThreadState_UncheckedGet();
+ }
++#define FRAME_EVAL_SPECIALIZATION_ALLOWED_INTERP(interp) \
++    ((interp)->eval_frame == NULL || \
++     (interp)->eval_frame == _PyEval_EvalFrameDefault)
++#define FRAME_EVAL_SPECIALIZATION_ALLOWED(tstate) \
++    FRAME_EVAL_SPECIALIZATION_ALLOWED_INTERP((tstate)->interp)
+ 
+ PyAPI_FUNC(void) _Py_NO_RETURN _Py_FatalError_TstateNULL(const char *func);
+ 
+diff --git a/Objects/dictobject.c b/Objects/dictobject.c
+index 69a4a865..23b6121b 100644
+--- a/Objects/dictobject.c
++++ b/Objects/dictobject.c
+@@ -450,19 +450,9 @@ estimate_log2_keysize(Py_ssize_t n)
+ /* This immutable, empty PyDictKeysObject is used for PyDict_Clear()
+  * (which cannot fail and thus can do no allocation).
+  */
+-static PyDictKeysObject empty_keys_struct = {
+-        1, /* dk_refcnt */
+-        0, /* dk_log2_size */
+-        0, /* dk_log2_index_bytes */
+-        DICT_KEYS_UNICODE, /* dk_kind */
+-        1, /* dk_version */
+-        0, /* dk_usable (immutable) */
+-        0, /* dk_nentries */
+-        {DKIX_EMPTY, DKIX_EMPTY, DKIX_EMPTY, DKIX_EMPTY,
+-         DKIX_EMPTY, DKIX_EMPTY, DKIX_EMPTY, DKIX_EMPTY}, /* dk_indices */
+-};
++extern PyDictKeysObject *frame_eval_empty_keys;
+ 
+-#define Py_EMPTY_KEYS &empty_keys_struct
++#define Py_EMPTY_KEYS frame_eval_empty_keys
+ 
+ /* Uncomment to check the dict content in _PyDict_CheckConsistency() */
+ // #define DEBUG_PYDICT
+diff --git a/Objects/unionobject.c b/Objects/unionobject.c
+index 5eee27c0..48f611c0 100644
+--- a/Objects/unionobject.c
++++ b/Objects/unionobject.c
+@@ -4,6 +4,8 @@
+ #include "pycore_unionobject.h"
+ #include "structmember.h"
+ 
++extern PyTypeObject *frame_eval_union_type;
++
+ 
+ static PyObject *make_union(PyObject *);
+ 
+@@ -395,7 +397,7 @@ make_union(PyObject *args)
+ {
+     assert(PyTuple_CheckExact(args));
+ 
+-    unionobject *result = PyObject_GC_New(unionobject, &_PyUnion_Type);
++    unionobject *result = PyObject_GC_New(unionobject, frame_eval_union_type);
+     if (result == NULL) {
+         return NULL;
+     }
+diff --git a/Python/ceval.c b/Python/ceval.c
+index 1ce6bbc1..c035d07b 100644
+--- a/Python/ceval.c
++++ b/Python/ceval.c
+@@ -1195,18 +1195,13 @@ eval_frame_handle_pending(PyThreadState *tstate)
+     /* GIL drop request */
+     if (_Py_atomic_load_relaxed_int32(&ceval2->gil_drop_request)) {
+         /* Give another thread a chance */
+-        if (_PyThreadState_Swap(&runtime->gilstate, NULL) != tstate) {
++        if (PyEval_SaveThread() != tstate) {
+             Py_FatalError("tstate mix-up");
+         }
+-        drop_gil(ceval, ceval2, tstate);
+ 
+         /* Other threads may run now */
+ 
+-        take_gil(tstate);
+-
+-        if (_PyThreadState_Swap(&runtime->gilstate, tstate) != NULL) {
+-            Py_FatalError("orphan tstate");
+-        }
++        PyEval_RestoreThread(tstate);
+     }
+ 
+     /* Check for asynchronous exception. */
+@@ -2227,7 +2222,7 @@ _PyEval_EvalFrameDefault(PyThreadState *tstate, _PyInterpreterFrame *frame, int
+         }
+ 
+         TARGET(BINARY_SUBSCR_GETITEM) {
+-            DEOPT_IF(tstate->interp->eval_frame, BINARY_SUBSCR);
++            DEOPT_IF(!FRAME_EVAL_SPECIALIZATION_ALLOWED(tstate), BINARY_SUBSCR);
+             PyObject *sub = TOP();
+             PyObject *container = SECOND();
+             _PyBinarySubscrCache *cache = (_PyBinarySubscrCache *)next_instr;
+@@ -4735,7 +4730,7 @@ _PyEval_EvalFrameDefault(PyThreadState *tstate, _PyInterpreterFrame *frame, int
+             PyObject *function = PEEK(total_args + 1);
+             int positional_args = total_args - KWNAMES_LEN();
+             // Check if the call can be inlined or not
+-            if (Py_TYPE(function) == &PyFunction_Type && tstate->interp->eval_frame == NULL) {
++            if (Py_TYPE(function) == &PyFunction_Type && FRAME_EVAL_SPECIALIZATION_ALLOWED(tstate)) {
+                 int code_flags = ((PyCodeObject*)PyFunction_GET_CODE(function))->co_flags;
+                 PyObject *locals = code_flags & CO_OPTIMIZED ? NULL : PyFunction_GET_GLOBALS(function);
+                 STACK_SHRINK(total_args);
+@@ -4835,7 +4830,7 @@ _PyEval_EvalFrameDefault(PyThreadState *tstate, _PyInterpreterFrame *frame, int
+ 
+         TARGET(CALL_PY_EXACT_ARGS) {
+             assert(call_shape.kwnames == NULL);
+-            DEOPT_IF(tstate->interp->eval_frame, CALL);
++            DEOPT_IF(!FRAME_EVAL_SPECIALIZATION_ALLOWED(tstate), CALL);
+             _PyCallCache *cache = (_PyCallCache *)next_instr;
+             int is_meth = is_method(stack_pointer, oparg);
+             int argcount = oparg + is_meth;
+@@ -4869,7 +4864,7 @@ _PyEval_EvalFrameDefault(PyThreadState *tstate, _PyInterpreterFrame *frame, int
+ 
+         TARGET(CALL_PY_WITH_DEFAULTS) {
+             assert(call_shape.kwnames == NULL);
+-            DEOPT_IF(tstate->interp->eval_frame, CALL);
++            DEOPT_IF(!FRAME_EVAL_SPECIALIZATION_ALLOWED(tstate), CALL);
+             _PyCallCache *cache = (_PyCallCache *)next_instr;
+             int is_meth = is_method(stack_pointer, oparg);
+             int argcount = oparg + is_meth;
+diff --git a/Python/specialize.c b/Python/specialize.c
+index 3441e844..e60d7dcd 100644
+--- a/Python/specialize.c
++++ b/Python/specialize.c
+@@ -1266,7 +1266,7 @@ _Py_Specialize_BinarySubscr(
+             SPECIALIZATION_FAIL(BINARY_SUBSCR, SPEC_FAIL_OUT_OF_VERSIONS);
+             goto fail;
+         }
+-        if (_PyInterpreterState_GET()->eval_frame) {
++        if (!FRAME_EVAL_SPECIALIZATION_ALLOWED_INTERP(_PyInterpreterState_GET())) {
+             SPECIALIZATION_FAIL(BINARY_SUBSCR, SPEC_FAIL_OTHER);
+             goto fail;
+         }
+@@ -1514,7 +1514,7 @@ specialize_py_call(PyFunctionObject *func, _Py_CODEUNIT *instr, int nargs,
+     PyCodeObject *code = (PyCodeObject *)func->func_code;
+     int kind = function_kind(code);
+     /* Don't specialize if PEP 523 is active */
+-    if (_PyInterpreterState_GET()->eval_frame) {
++    if (!FRAME_EVAL_SPECIALIZATION_ALLOWED_INTERP(_PyInterpreterState_GET())) {
+         SPECIALIZATION_FAIL(CALL, SPEC_FAIL_CALL_PEP_523);
+         return -1;
+     }

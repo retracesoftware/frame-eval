@@ -18,7 +18,10 @@ This repository owns the reproducible source closure rooted at
 
 Generated source sets are workflow artifacts consumed and checked in by
 `retrace-eval`. They retain upstream relative paths so later Retrace patches
-can operate on recognizable CPython source.
+can operate on recognizable CPython source. Each source set includes the exact
+release's complete CPython header tree under `Include/` and its configured
+`pyconfig.h`, so target compilation does not require a separate CPython
+checkout.
 
 ## Regenerate a release
 
