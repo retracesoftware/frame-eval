@@ -151,9 +151,6 @@ index 3441e844..e60d7dcd 100644
 diff --git a/Objects/unicodeobject.c b/Objects/unicodeobject.c
 --- a/Objects/unicodeobject.c
 +++ b/Objects/unicodeobject.c
-@@ -15433,4 +15433,4 @@ _PyUnicode_ExactDealloc(PyObject *op)
- {
-     assert(PyUnicode_CheckExact(op));
+@@ -15435 +15435 @@
 -    unicode_dealloc(op);
 +    Py_TYPE(op)->tp_dealloc(op);
- }
