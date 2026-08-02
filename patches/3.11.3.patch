@@ -130,3 +130,12 @@ index 08ce2f5c..2bc6df40 100644
          SPECIALIZATION_FAIL(CALL, SPEC_FAIL_CALL_PEP_523);
          return -1;
      }
+diff --git a/Objects/unicodeobject.c b/Objects/unicodeobject.c
+--- a/Objects/unicodeobject.c
++++ b/Objects/unicodeobject.c
+@@ -15433,4 +15433,4 @@ _PyUnicode_ExactDealloc(PyObject *op)
+ {
+     assert(PyUnicode_CheckExact(op));
+-    unicode_dealloc(op);
++    Py_TYPE(op)->tp_dealloc(op);
+ }
