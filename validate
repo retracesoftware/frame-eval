@@ -39,9 +39,8 @@ mkdir -p "$objects"
 while read -r relative; do
     object="$objects/${relative//\//_}"
     object="${object%.c}.o"
-    source_parent="$source_tree/$(dirname "$relative")"
     if ! (
-        cd "$source_tree"
+        cd "$snapshot"
         "$compiler" -I"$snapshot/Include/internal" -I"$snapshot/Include" \
             -include "$snapshot/Include/retrace_redacted.h" \
             $flags \
@@ -51,7 +50,7 @@ while read -r relative; do
             -DEXEC_PREFIX=\"/usr/local\" -DVERSION=\"$python_version\" \
             -DVPATH=\"\" -DPLATLIBDIR=\"lib\" -DPYTHONFRAMEWORK=\"\" \
             -iquote "$snapshot/$(dirname "$relative")" \
-            -iquote "$source_parent" -I"$snapshot" \
+            -I"$snapshot" \
             -c "$snapshot/$relative" -o "$object"
     ) >> "$compile_log" 2>&1; then
         echo "failed to compile $relative" >&2

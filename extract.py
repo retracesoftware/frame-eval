@@ -334,7 +334,7 @@ class Extractor:
                     for includer, included in pending:
                         if (
                             includer in included_files
-                            and includer.parent == included.parent
+                            and included.is_relative_to(includer.parent)
                         ):
                             included_files.add(included)
                         else:

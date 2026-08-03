@@ -22,6 +22,7 @@ class ExtractTests(unittest.TestCase):
             included_c = source_tree / "Python" / "bytecodes.c"
             nested_header = source_tree / "Python" / "optimizer.h"
             indirect_header = source_tree / "Python" / "indirect.h"
+            subdirectory_header = source_tree / "Python" / "stringlib" / "asciilib.h"
             remote_header = source_tree / "Objects" / "remote.h"
             public_header = source_tree / "Include" / "Python.h"
             for path in (
@@ -30,6 +31,7 @@ class ExtractTests(unittest.TestCase):
                 included_c,
                 nested_header,
                 indirect_header,
+                subdirectory_header,
                 remote_header,
                 public_header,
             ):
@@ -46,6 +48,7 @@ class ExtractTests(unittest.TestCase):
                     (source, included_c),
                     (included_c, nested_header),
                     (nested_header, indirect_header),
+                    (included_c, subdirectory_header),
                     (included_c, remote_header),
                     (source, public_header),
                 )
@@ -67,6 +70,9 @@ class ExtractTests(unittest.TestCase):
             self.assertTrue((output / "Python" / "bytecodes.c").is_file())
             self.assertTrue((output / "Python" / "optimizer.h").is_file())
             self.assertTrue((output / "Python" / "indirect.h").is_file())
+            self.assertTrue(
+                (output / "Python" / "stringlib" / "asciilib.h").is_file()
+            )
             self.assertFalse((output / "Objects" / "remote.h").exists())
             self.assertFalse((output / "Include" / "Python.h").exists())
             self.assertEqual(
