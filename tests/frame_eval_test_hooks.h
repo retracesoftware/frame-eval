@@ -4,6 +4,7 @@
 #include "Python.h"
 
 PyObject *frame_eval_test(PyThreadState *, struct _PyInterpreterFrame *, int);
+PyObject *frame_eval(PyThreadState *, struct _PyInterpreterFrame *, int);
 
 void frame_eval_test_eval_enter(void);
 void frame_eval_test_eval_exit(void);
@@ -24,12 +25,10 @@ void frame_eval_test_native_call_post(void);
 #define FRAME_EVAL_HOOK_NATIVE_CALL_PRE() frame_eval_test_native_call_pre()
 #define FRAME_EVAL_HOOK_NATIVE_CALL_POST() frame_eval_test_native_call_post()
 
-#if PY_VERSION_HEX < 0x030C0000
 #define FRAME_EVAL_SPECIALIZATION_ALLOWED_INTERP(interp) \
-    ((interp)->eval_frame == NULL || \
-     (interp)->eval_frame == _PyEval_EvalFrameDefault)
+    ((interp)->eval_frame == NULL || (interp)->eval_frame == frame_eval || \
+     (interp)->eval_frame == frame_eval_test)
 #define FRAME_EVAL_SPECIALIZATION_ALLOWED(tstate) \
     FRAME_EVAL_SPECIALIZATION_ALLOWED_INTERP((tstate)->interp)
-#endif
 
 #endif
