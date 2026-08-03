@@ -2,6 +2,9 @@
 # It cannot be active while frame_eval is installed.
 test_perf_profiler
 
+# Fixed upstream in 3.11.8 (gh-113205).
+test.test_multiprocessing_spawn.test_threads
+
 # test_freeze rebuilds the patched source tree without the generated archive.
 # CPython 3.11.6 marks this slow test as requiring the CPU resource.
 test_tools

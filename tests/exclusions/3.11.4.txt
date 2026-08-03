@@ -2,6 +2,9 @@
 # It cannot be active while frame_eval is installed.
 test_perf_profiler
 
+# Fixed upstream in 3.11.8 (gh-113205).
+test.test_multiprocessing_spawn.test_threads
+
 # test___all__ imports a file with an invalid escape sequence fixed in 3.11.6.
 test___all__
 

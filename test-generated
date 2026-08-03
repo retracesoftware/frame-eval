@@ -23,16 +23,22 @@ if [[ $# -eq 0 ]]; then
         echo "missing CPython test exclusions: $exclusions_file" >&2
         exit 1
     fi
-    exclusions=()
+    declare -A exclusions=()
     while IFS= read -r test_name; do
         [[ -z $test_name || $test_name == \#* ]] && continue
         if [[ ! $test_name =~ ^test(_[A-Za-z0-9_]+|\.[A-Za-z0-9_]+)+$ ]]; then
             echo "invalid CPython test exclusion: $test_name" >&2
             exit 1
         fi
-        exclusions+=("$test_name")
+        exclusions["$test_name"]=1
     done < "$exclusions_file"
-    set -- -j0 --timeout=300 -x "${exclusions[@]}"
+    test_list=$("$source_tree/python" -m test --list-tests)
+    mapfile -t discovered_tests <<< "$test_list"
+    selected_tests=()
+    for test_name in "${discovered_tests[@]}"; do
+        [[ ${exclusions["$test_name"]+excluded} ]] || selected_tests+=("$test_name")
+    done
+    set -- -j0 --timeout=300 "${selected_tests[@]}"
 fi
 exec env PYTHONPATH="$bootstrap" FRAME_EVAL_EXTENSION="$output" \
     "$source_tree/python" -m test "$@"
