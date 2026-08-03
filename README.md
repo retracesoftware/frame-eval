@@ -93,6 +93,9 @@ module initialization, and verifies the active pointer.
 `sitecustomize` loads it in the test runner and inherited worker processes. The
 no-argument form runs the standard suite in parallel with a per-test timeout
 and the reviewed exact-release exclusions in `tests/exclusions/<version>.txt`.
+The timing-sensitive `test_timerfd_TFD_TIMER_ABSTIME` case is ignored on every
+release. The multiprocessing pool `test_terminate` case is ignored through
+3.11.7 and 3.12.1, before the upstream hang fix.
 
 ## Benchmark an evaluator
 

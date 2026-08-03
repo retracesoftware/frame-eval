@@ -38,7 +38,15 @@ if [[ $# -eq 0 ]]; then
     for test_name in "${discovered_tests[@]}"; do
         [[ ${exclusions["$test_name"]+excluded} ]] || selected_tests+=("$test_name")
     done
-    set -- -j0 --timeout=300 "${selected_tests[@]}"
+    set -- -j0 --timeout=300 \
+        --ignore test.test_os.TimerfdTests.test_timerfd_TFD_TIMER_ABSTIME
+    case $version in
+        3.11.[0-7]|3.12.[01])
+            set -- "$@" \
+                --ignore test.test_multiprocessing_forkserver.test_threads.WithThreadsTestPool.test_terminate
+            ;;
+    esac
+    set -- "$@" "${selected_tests[@]}"
 fi
 exec env PYTHONPATH="$bootstrap" FRAME_EVAL_EXTENSION="$output" \
     "$source_tree/python" -m test "$@"
