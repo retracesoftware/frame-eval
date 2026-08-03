@@ -4,3 +4,6 @@ test_perf_profiler
 
 # Removed upstream by gh-145932: this subprocess test has an internal race.
 test_pyrepl.test_unix_console.TestUnixConsoleEIOHandling.test_repl_eio
+
+# Fragile under load due to a hardcoded 1 ms timeout; see python/cpython#119452.
+test_httpservers.CGIHTTPServerTestCase.test_large_content_length_truncated
