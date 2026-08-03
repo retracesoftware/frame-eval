@@ -313,7 +313,37 @@ class Extractor:
         }
         for unit in self.units.values():
             if unit.source in self.selected_units:
-                files[unit.source]
+                included_files = {unit.source}
+                inclusions = []
+                for inclusion in unit.translation_unit.get_includes():
+                    included = Path(inclusion.include.name).resolve()
+                    includer = inclusion.source
+                    if (
+                        not is_owned_file(included, self.source_tree)
+                        or not included.is_file()
+                    ):
+                        continue
+                    if included.suffix == ".c":
+                        included_files.add(included)
+                    elif includer is not None and included.suffix == ".h":
+                        includer = Path(includer.name).resolve()
+                        inclusions.append((includer, included))
+                pending = inclusions
+                while pending:
+                    remaining = []
+                    for includer, included in pending:
+                        if (
+                            includer in included_files
+                            and includer.parent == included.parent
+                        ):
+                            included_files.add(included)
+                        else:
+                            remaining.append((includer, included))
+                    if len(remaining) == len(pending):
+                        break
+                    pending = remaining
+                for included in included_files:
+                    files[included]
                 for definition in unit.owned_definitions:
                     files[cursor_file(definition)].append(definition)
             for definition in unit.owned_definitions:
