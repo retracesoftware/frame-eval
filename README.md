@@ -18,10 +18,12 @@ This repository owns the reproducible source closure rooted at
 
 Generated source sets are workflow artifacts consumed and checked in by
 `retrace-eval`. They retain upstream relative paths so later Retrace patches
-can operate on recognizable CPython source. Each source set includes the exact
-release's complete CPython header tree under `Include/` and its configured
-`pyconfig.h`, so target compilation does not require a separate CPython
-checkout.
+can operate on recognizable CPython source. The snapshot is now a set of
+overrides: it contains the extracted evaluator source, the `Include/` headers
+that the release's patch modifies, and the synthetic `frame_eval.h` /
+`retrace_redacted.h` templates. The target must supply the rest of the exact
+release's CPython header tree and its configured `pyconfig.h` from a matching
+source checkout or installed Python development headers.
 
 ## Regenerate a release
 
@@ -74,6 +76,20 @@ sets these automatically. For an already configured source and matching host:
 SOURCE_TREE=/path/to/cpython \
 HOST_PYTHON=/path/to/python \
 LIBPYTHON_ARCHIVE=/path/to/libpython.a \
+./validate 3.12.8
+```
+
+When the snapshot is compiled against a different CPython source tree than the
+one used to build the host (for example, on the target platform), point
+`SYSTEM_CPYTHON` at that configured source tree. The snapshot's patched headers
+shadow the system's, and the system supplies `pyconfig.h` and the remaining
+`Include/` tree:
+
+```bash
+SOURCE_TREE=/path/to/build-host-cpython \
+SYSTEM_CPYTHON=/path/to/target-cpython \
+HOST_PYTHON=/path/to/target/python \
+LIBPYTHON_ARCHIVE=/path/to/target/libpython.a \
 ./validate 3.12.8
 ```
 

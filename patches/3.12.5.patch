@@ -2,7 +2,7 @@ diff --git a/Include/internal/pycore_pystate.h b/Include/internal/pycore_pystate
 index fba08ae55235d95736788e15b9618ab8feadf80d..0909b5ad479035904ad5e87e3acfc624bb80e28b 100644
 --- a/Include/internal/pycore_pystate.h
 +++ b/Include/internal/pycore_pystate.h
-@@ -93,11 +93,7 @@ extern int _PyThreadState_MustExit(PyThreadState *tstate);
+@@ -93,11 +93,15 @@ extern int _PyThreadState_MustExit(PyThreadState *tstate);
  static inline PyThreadState*
  _PyThreadState_GET(void)
  {
@@ -13,6 +13,14 @@ index fba08ae55235d95736788e15b9618ab8feadf80d..0909b5ad479035904ad5e87e3acfc624
 -#endif
 +    return _PyThreadState_UncheckedGet();
  }
++#define FRAME_EVAL_SPECIALIZATION_ALLOWED_INTERP(interp) \
++    ((interp)->eval_frame == NULL || \
++     (interp)->eval_frame == _PyEval_EvalFrameDefault)
++#define FRAME_EVAL_SPECIALIZATION_ALLOWED(tstate) \
++    FRAME_EVAL_SPECIALIZATION_ALLOWED_INTERP((tstate)->interp)
++extern getattrofunc frame_eval_slot_tp_getattr_hook;
++extern getattrofunc frame_eval_slot_tp_getattro;
++extern vectorcallfunc frame_eval_function_vectorcall;
  
  
 diff --git a/Objects/dictobject.c b/Objects/dictobject.c

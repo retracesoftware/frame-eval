@@ -39,7 +39,8 @@ rm -rf "$output"
 mkdir -p "$output"
 (
     cd "$source_tree"
-    "$compiler" $flags -fPIC -I"$snapshot/Include" \
+    "$compiler" $flags -fPIC \
+        -I"$snapshot/Include" -I"$source_tree/Include" \
         -c "$root/tests/frame_eval_test_module.c" -o "$output/module.o"
 )
 cp "$snapshot/Python/ceval.c" "$output/instrumented-ceval.c"

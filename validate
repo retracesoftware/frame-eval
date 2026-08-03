@@ -11,6 +11,7 @@ root=$(cd "$(dirname "$0")" && pwd)
 compiler=${CC:-cc}
 source_tree=${SOURCE_TREE:-"$root/build/v$version/cpython"}
 snapshot=${SNAPSHOT:-"$root/build/workflow/sources/$version"}
+system_cpython=${SYSTEM_CPYTHON:-"$source_tree"}
 mode_root=${OUTPUT_ROOT:-"$root/build/v$version/validate"}
 host=${HOST_PYTHON:-"$source_tree/python"}
 archive=${LIBPYTHON_ARCHIVE:-"$source_tree/libpython${version%.*}.a"}
@@ -21,6 +22,12 @@ compile_log="$mode_root/compile.log"
 for path in "$source_tree/Makefile" "$snapshot/sources.txt" "$host" "$archive"; do
     if [[ ! -e "$path" ]]; then
         echo "missing prerequisite: $path" >&2
+        exit 1
+    fi
+done
+for path in "$system_cpython/Makefile" "$system_cpython/pyconfig.h"; do
+    if [[ ! -e "$path" ]]; then
+        echo "missing system CPython header source: $path" >&2
         exit 1
     fi
 done
@@ -41,7 +48,10 @@ while read -r relative; do
     object="${object%.c}.o"
     if ! (
         cd "$snapshot"
-        "$compiler" -I"$snapshot/Include/internal" -I"$snapshot/Include" \
+        "$compiler" \
+            -I"$snapshot/Include/internal" -I"$snapshot/Include" \
+            -I"$system_cpython/Include/internal" -I"$system_cpython/Include" \
+            -I"$system_cpython" \
             -include "$snapshot/Include/retrace_redacted.h" \
             $flags \
             -D_PyEval_EvalFrameDefault=frame_eval \

@@ -2,7 +2,7 @@ diff --git a/Include/internal/pycore_pystate.h b/Include/internal/pycore_pystate
 index ccfc2586f0f23514855661314f94725fe5e4b5e3..926644fbe19cc7da02f9e38b04d01581c08df68d 100644
 --- a/Include/internal/pycore_pystate.h
 +++ b/Include/internal/pycore_pystate.h
-@@ -78,11 +78,7 @@ PyAPI_DATA(PyThreadState *) _PyThreadState_GetCurrent(void);
+@@ -78,11 +78,15 @@ PyAPI_DATA(PyThreadState *) _PyThreadState_GetCurrent(void);
  static inline PyThreadState*
  _PyThreadState_GET(void)
  {
@@ -13,6 +13,14 @@ index ccfc2586f0f23514855661314f94725fe5e4b5e3..926644fbe19cc7da02f9e38b04d01581
 -#endif
 +    return _PyThreadState_UncheckedGet();
  }
++#define FRAME_EVAL_SPECIALIZATION_ALLOWED_INTERP(interp) \
++    ((interp)->eval_frame == NULL || \
++     (interp)->eval_frame == _PyEval_EvalFrameDefault)
++#define FRAME_EVAL_SPECIALIZATION_ALLOWED(tstate) \
++    FRAME_EVAL_SPECIALIZATION_ALLOWED_INTERP((tstate)->interp)
++extern getattrofunc frame_eval_slot_tp_getattr_hook;
++extern getattrofunc frame_eval_slot_tp_getattro;
++extern vectorcallfunc frame_eval_function_vectorcall;
  
  
 diff --git a/Objects/dictobject.c b/Objects/dictobject.c

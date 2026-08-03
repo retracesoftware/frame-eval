@@ -86,11 +86,15 @@ fi
     --root _PyEval_EvalFrameDefault \
     --out "$staging"
 
-mkdir -p "$staging/Include/internal"
-cp "$source_tree/Include/internal/pycore_pystate.h" \
-    "$staging/Include/internal/pycore_pystate.h"
-cp --archive --update=none "$source_tree/Include/." "$staging/Include/"
-cp "$source_tree/pyconfig.h" "$staging/pyconfig.h"
+# Copy only Include/ headers that this release's patch modifies.  The
+# snapshot is a set of overrides; the target supplies the rest of the
+# CPython header tree (and pyconfig.h) from a matching source checkout.
+mkdir -p "$staging/Include"
+git -C "$source_tree" diff --name-only HEAD -- Include/ \
+    | while read -r header; do
+        mkdir -p "$staging/$(dirname "$header")"
+        cp "$source_tree/$header" "$staging/$header"
+    done
 for generated_header in ceval_macros.h generated_cases.c.h; do
     if [[ -f $source_tree/Python/$generated_header ]]; then
         cp "$source_tree/Python/$generated_header" \
