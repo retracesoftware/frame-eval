@@ -10,9 +10,10 @@ version=${1#v}
 root=$(cd "$(dirname "$0")" && pwd)
 source_tree="$root/build/v$version/cpython"
 archive="$root/build/v$version/validate/libpython-frame-eval.a"
-snapshot="$root/build/workflow/sources/$version"
+snapshot=${SNAPSHOT:-"$root/build/workflow/sources/$version"}
 output="$root/build/v$version/test-extension"
 compiler=${CC:-cc}
+objcopy=${OBJCOPY:-objcopy}
 
 for path in \
     "$source_tree/Makefile" \
@@ -37,12 +38,33 @@ extension="$output/_frame_eval_test$ext_suffix"
 rm -rf "$output"
 mkdir -p "$output"
 (
-    cd "$snapshot"
+    cd "$source_tree"
     "$compiler" $flags -fPIC -I"$snapshot/Include" \
-        -I"$snapshot/Include/internal" \
         -c "$root/tests/frame_eval_test_module.c" -o "$output/module.o"
 )
+cp "$snapshot/Python/ceval.c" "$output/instrumented-ceval.c"
+(
+    cd "$source_tree"
+    "$compiler" $flags -fPIC \
+        -iquote "$snapshot/Python" \
+        -iquote "$source_tree/Python" \
+        -include "$root/tests/frame_eval_test_hooks.h" \
+        -D_PyEval_EvalFrameDefault=frame_eval_test \
+    -c "$output/instrumented-ceval.c" \
+    -o "$output/instrumented-eval.o"
+)
+mapfile -t duplicate_symbols < <(
+    nm -g --defined-only "$output/instrumented-eval.o" |
+        awk 'NF >= 3 && $NF != "frame_eval_test" {print $NF}'
+)
+localize_args=()
+for symbol in "${duplicate_symbols[@]}"; do
+    localize_args+=(--localize-symbol="$symbol")
+done
+"$objcopy" "${localize_args[@]}" "$output/instrumented-eval.o"
+
 "$compiler" -shared -o "$extension" "$output/module.o" \
+    "$output/instrumented-eval.o" \
     -Wl,--whole-archive "$archive" -Wl,--no-whole-archive \
     -Wl,--exclude-libs,ALL
 

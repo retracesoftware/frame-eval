@@ -1,3 +1,5 @@
+diff --git a/Include/internal/pycore_pystate.h b/Include/internal/pycore_pystate.h
+index fba08ae55235d95736788e15b9618ab8feadf80d..0909b5ad479035904ad5e87e3acfc624bb80e28b 100644
 --- a/Include/internal/pycore_pystate.h
 +++ b/Include/internal/pycore_pystate.h
 @@ -93,11 +93,7 @@ extern int _PyThreadState_MustExit(PyThreadState *tstate);
@@ -13,6 +15,161 @@
  }
  
  
+diff --git a/Objects/dictobject.c b/Objects/dictobject.c
+index 254cd9ad2f9bdad9724da17766ab42ba20e1f8e0..bc3fbfb8e6a1f4a8238db06476a96ca16d32ea9d 100644
+--- a/Objects/dictobject.c
++++ b/Objects/dictobject.c
+@@ -459,19 +459,9 @@ estimate_log2_keysize(Py_ssize_t n)
+ /* This immutable, empty PyDictKeysObject is used for PyDict_Clear()
+  * (which cannot fail and thus can do no allocation).
+  */
+-static PyDictKeysObject empty_keys_struct = {
+-        _Py_IMMORTAL_REFCNT, /* dk_refcnt */
+-        0, /* dk_log2_size */
+-        0, /* dk_log2_index_bytes */
+-        DICT_KEYS_UNICODE, /* dk_kind */
+-        1, /* dk_version */
+-        0, /* dk_usable (immutable) */
+-        0, /* dk_nentries */
+-        {DKIX_EMPTY, DKIX_EMPTY, DKIX_EMPTY, DKIX_EMPTY,
+-         DKIX_EMPTY, DKIX_EMPTY, DKIX_EMPTY, DKIX_EMPTY}, /* dk_indices */
+-};
++extern PyDictKeysObject *frame_eval_empty_keys;
+ 
+-#define Py_EMPTY_KEYS &empty_keys_struct
++#define Py_EMPTY_KEYS frame_eval_empty_keys
+ 
+ /* Uncomment to check the dict content in _PyDict_CheckConsistency() */
+ // #define DEBUG_PYDICT
+diff --git a/Objects/typevarobject.c b/Objects/typevarobject.c
+index db9c2191d60090933b215a8e4396f147e9113aad..a0053024ff72ed4822b1f1931e557dde23ec4244 100644
+--- a/Objects/typevarobject.c
++++ b/Objects/typevarobject.c
+@@ -5,6 +5,8 @@
+ #include "pycore_unionobject.h"   // _Py_union_type_or
+ #include "structmember.h"
+ 
++extern PyTypeObject *frame_eval_typealias_type;
++
+ /*[clinic input]
+ class typevar "typevarobject *" "&_PyTypeVar_Type"
+ class paramspec "paramspecobject *" "&_PyParamSpec_Type"
+@@ -1359,7 +1361,7 @@ static typealiasobject *
+ typealias_alloc(PyObject *name, PyObject *type_params, PyObject *compute_value,
+                 PyObject *value, PyObject *module)
+ {
+-    typealiasobject *ta = PyObject_GC_New(typealiasobject, &_PyTypeAlias_Type);
++    typealiasobject *ta = PyObject_GC_New(typealiasobject, frame_eval_typealias_type);
+     if (ta == NULL) {
+         return NULL;
+     }
+diff --git a/Objects/unionobject.c b/Objects/unionobject.c
+index f509a161bb9564a6fad3a6b583da139bb75a74ab..0d5bc57af4f0d19708d0830d232a374bccbcb477 100644
+--- a/Objects/unionobject.c
++++ b/Objects/unionobject.c
+@@ -5,6 +5,9 @@
+ #include "pycore_unionobject.h"
+ #include "structmember.h"
+ 
++extern PyTypeObject *frame_eval_typealias_type;
++extern PyTypeObject *frame_eval_union_type;
++
+ 
+ static PyObject *make_union(PyObject *);
+ 
+@@ -152,7 +155,7 @@ is_unionable(PyObject *obj)
+         PyType_Check(obj) ||
+         _PyGenericAlias_Check(obj) ||
+         _PyUnion_Check(obj) ||
+-        Py_IS_TYPE(obj, &_PyTypeAlias_Type)) {
++        Py_IS_TYPE(obj, frame_eval_typealias_type)) {
+         return 1;
+     }
+     return 0;
+@@ -395,7 +398,7 @@ make_union(PyObject *args)
+ {
+     assert(PyTuple_CheckExact(args));
+ 
+-    unionobject *result = PyObject_GC_New(unionobject, &_PyUnion_Type);
++    unionobject *result = PyObject_GC_New(unionobject, frame_eval_union_type);
+     if (result == NULL) {
+         return NULL;
+     }
+diff --git a/Python/ceval.c b/Python/ceval.c
+index 6110883ca0e7f29d60281bb73b860e518d9d4479..4c61ad7843ad77991f9416961984789b9d6028bc 100644
+--- a/Python/ceval.c
++++ b/Python/ceval.c
+@@ -25,6 +25,11 @@
+ #include "pycore_emscripten_signal.h"  // _Py_CHECK_EMSCRIPTEN_SIGNALS
+ 
+ #include "pycore_dict.h"
++
++extern PyObject *frame_eval_monitoring_disable;
++extern PyObject *frame_eval_monitoring_missing;
++#define _PyInstrumentation_DISABLE (*frame_eval_monitoring_disable)
++#define _PyInstrumentation_MISSING (*frame_eval_monitoring_missing)
+ #include "dictobject.h"
+ #include "pycore_frame.h"
+ #include "frameobject.h"          // _PyInterpreterFrame_GetLine
+@@ -36,6 +41,31 @@
+ #include <ctype.h>
+ #include <stdbool.h>
+ 
++#ifndef FRAME_EVAL_HOOK_EVAL_ENTER
++#  define FRAME_EVAL_HOOK_EVAL_ENTER() ((void)0)
++#endif
++#ifndef FRAME_EVAL_HOOK_EVAL_EXIT
++#  define FRAME_EVAL_HOOK_EVAL_EXIT() ((void)0)
++#endif
++#ifndef FRAME_EVAL_HOOK_INSTRUCTION
++#  define FRAME_EVAL_HOOK_INSTRUCTION() ((void)0)
++#endif
++#ifndef FRAME_EVAL_HOOK_BACKWARD_JUMP
++#  define FRAME_EVAL_HOOK_BACKWARD_JUMP() ((void)0)
++#endif
++#ifndef FRAME_EVAL_HOOK_FRAME_PUSH
++#  define FRAME_EVAL_HOOK_FRAME_PUSH(new_frame) ((void)0)
++#endif
++#ifndef FRAME_EVAL_HOOK_FRAME_POP
++#  define FRAME_EVAL_HOOK_FRAME_POP() ((void)0)
++#endif
++#ifndef FRAME_EVAL_HOOK_NATIVE_CALL_PRE
++#  define FRAME_EVAL_HOOK_NATIVE_CALL_PRE() ((void)0)
++#endif
++#ifndef FRAME_EVAL_HOOK_NATIVE_CALL_POST
++#  define FRAME_EVAL_HOOK_NATIVE_CALL_POST() ((void)0)
++#endif
++
+ #ifdef Py_DEBUG
+    /* For debugging the interpreter: */
+ #  define LLTRACE  1      /* Low-level trace feature */
+@@ -703,6 +733,8 @@ _PyEval_EvalFrameDefault(PyThreadState *tstate, _PyInterpreterFrame *frame, int
+     entry_frame.previous = prev_cframe->current_frame;
+     frame->previous = &entry_frame;
+     cframe.current_frame = frame;
++    FRAME_EVAL_HOOK_EVAL_ENTER();
++    FRAME_EVAL_HOOK_FRAME_PUSH(frame);
+ 
+     tstate->c_recursion_remaining -= (PY_EVAL_C_STACK_UNITS - 1);
+     if (_Py_EnterRecursiveCallTstate(tstate, "")) {
+@@ -996,6 +1028,7 @@ _PyEval_EvalFrameDefault(PyThreadState *tstate, _PyInterpreterFrame *frame, int
+     _Py_LeaveRecursiveCallPy(tstate);
+     assert(frame != &entry_frame);
+     // GH-99729: We need to unlink the frame *before* clearing it:
++    FRAME_EVAL_HOOK_FRAME_POP();
+     _PyInterpreterFrame *dying = frame;
+     frame = cframe.current_frame = dying->previous;
+     _PyEvalFrameClearAndPop(tstate, dying);
+@@ -1005,6 +1038,7 @@ _PyEval_EvalFrameDefault(PyThreadState *tstate, _PyInterpreterFrame *frame, int
+         tstate->cframe = cframe.previous;
+         assert(tstate->cframe->current_frame == frame->previous);
+         tstate->c_recursion_remaining += PY_EVAL_C_STACK_UNITS;
++        FRAME_EVAL_HOOK_EVAL_EXIT();
+         return NULL;
+     }
+ 
+diff --git a/Python/ceval_gil.c b/Python/ceval_gil.c
+index c1ab5883568e7d7d038a95b81e10fd46e4f965c2..bf540b6254022f11acfc7895a53881ba0035875d 100644
 --- a/Python/ceval_gil.c
 +++ b/Python/ceval_gil.c
 @@ -1048,18 +1048,13 @@ _Py_HandlePending(PyThreadState *tstate)
@@ -36,100 +193,343 @@
      }
  
      /* Check for asynchronous exception. */
-
---- a/Objects/dictobject.c
-+++ b/Objects/dictobject.c
-@@ -462,13 +462,3 @@
--static PyDictKeysObject empty_keys_struct = {
--        _Py_IMMORTAL_REFCNT, /* dk_refcnt */
--        0, /* dk_log2_size */
--        0, /* dk_log2_index_bytes */
--        DICT_KEYS_UNICODE, /* dk_kind */
--        1, /* dk_version */
--        0, /* dk_usable (immutable) */
--        0, /* dk_nentries */
--        {DKIX_EMPTY, DKIX_EMPTY, DKIX_EMPTY, DKIX_EMPTY,
--         DKIX_EMPTY, DKIX_EMPTY, DKIX_EMPTY, DKIX_EMPTY}, /* dk_indices */
--};
--
--#define Py_EMPTY_KEYS &empty_keys_struct
-+extern PyDictKeysObject *frame_eval_empty_keys;
-+
-+#define Py_EMPTY_KEYS frame_eval_empty_keys
-
---- a/Objects/typevarobject.c
-+++ b/Objects/typevarobject.c
-@@ -6,0 +7,2 @@
-+
-+extern PyTypeObject *frame_eval_typealias_type;
-@@ -1362 +1362 @@ typealias_alloc(PyObject *name, PyObject *type_params,
--    typealiasobject *ta = PyObject_GC_New(typealiasobject, &_PyTypeAlias_Type);
-+    typealiasobject *ta = PyObject_GC_New(typealiasobject, frame_eval_typealias_type);
-
---- a/Objects/unionobject.c
-+++ b/Objects/unionobject.c
-@@ -6,0 +7,3 @@
-+
-+extern PyTypeObject *frame_eval_typealias_type;
-+extern PyTypeObject *frame_eval_union_type;
-@@ -155 +155 @@ is_unionable(PyObject *obj)
--        Py_IS_TYPE(obj, &_PyTypeAlias_Type)) {
-+        Py_IS_TYPE(obj, frame_eval_typealias_type)) {
-@@ -398 +398 @@ make_union(PyObject *args)
--    unionobject *result = PyObject_GC_New(unionobject, &_PyUnion_Type);
-+    unionobject *result = PyObject_GC_New(unionobject, frame_eval_union_type);
-
---- a/Python/ceval.c
-+++ b/Python/ceval.c
-@@ -27,0 +28,5 @@
-+
-+extern PyObject *frame_eval_monitoring_disable;
-+extern PyObject *frame_eval_monitoring_missing;
-+#define _PyInstrumentation_DISABLE (*frame_eval_monitoring_disable)
-+#define _PyInstrumentation_MISSING (*frame_eval_monitoring_missing)
-
+diff --git a/Python/ceval_macros.h b/Python/ceval_macros.h
+index fccf9088cbd131f705db35c3b302bf2b7757aee0..3df6ac354a33dca2f1f5ba5bab791df60dbb0aa3 100644
 --- a/Python/ceval_macros.h
 +++ b/Python/ceval_macros.h
-@@ -108 +108 @@
+@@ -63,12 +63,17 @@
+ #define INSTRUCTION_START(op) \
+     do { \
+         frame->prev_instr = next_instr++; \
++        FRAME_EVAL_HOOK_INSTRUCTION(); \
+         OPCODE_EXE_INC(op); \
+         if (_py_stats) _py_stats->opcode_stats[lastopcode].pair_count[op]++; \
+         lastopcode = op; \
+     } while (0)
+ #else
+-#define INSTRUCTION_START(op) (frame->prev_instr = next_instr++)
++#define INSTRUCTION_START(op) \
++    do { \
++        frame->prev_instr = next_instr++; \
++        FRAME_EVAL_HOOK_INSTRUCTION(); \
++    } while (0)
+ #endif
+ 
+ #if USE_COMPUTED_GOTOS
+@@ -105,7 +110,8 @@
+ 
+ #define DISPATCH_INLINED(NEW_FRAME)                     \
+     do {                                                \
 -        assert(tstate->interp->eval_frame == NULL);     \
 +        assert(FRAME_EVAL_SPECIALIZATION_ALLOWED(tstate)); \
-
++        FRAME_EVAL_HOOK_FRAME_PUSH(NEW_FRAME);           \
+         _PyFrame_SetStackPointer(frame, stack_pointer); \
+         frame->prev_instr = next_instr - 1;             \
+         (NEW_FRAME)->previous = frame;                  \
+diff --git a/Python/generated_cases.c.h b/Python/generated_cases.c.h
+index ea17c0410bc5882f4785db01486f387970d45b34..5739694d3cf9d568cb26834db7575bf1b9639fc8 100644
 --- a/Python/generated_cases.c.h
 +++ b/Python/generated_cases.c.h
-@@ -710 +710 @@
+@@ -707,7 +707,7 @@
+             PyObject *sub = stack_pointer[-1];
+             PyObject *container = stack_pointer[-2];
+             #line 496 "Python/bytecodes.c"
 -            DEOPT_IF(tstate->interp->eval_frame, BINARY_SUBSCR);
 +            DEOPT_IF(!FRAME_EVAL_SPECIALIZATION_ALLOWED(tstate), BINARY_SUBSCR);
-@@ -1162 +1162 @@
+             PyTypeObject *tp = Py_TYPE(container);
+             DEOPT_IF(!PyType_HasFeature(tp, Py_TPFLAGS_HEAPTYPE), BINARY_SUBSCR);
+             PyHeapTypeObject *ht = (PyHeapTypeObject *)tp;
+@@ -923,6 +923,7 @@
+             assert(tstate->cframe->current_frame == frame->previous);
+             assert(!_PyErr_Occurred(tstate));
+             tstate->c_recursion_remaining += PY_EVAL_C_STACK_UNITS;
++            FRAME_EVAL_HOOK_EVAL_EXIT();
+             return retval;
+             #line 928 "Python/generated_cases.c.h"
+         }
+@@ -936,6 +937,7 @@
+             _Py_LeaveRecursiveCallPy(tstate);
+             assert(frame != &entry_frame);
+             // GH-99729: We need to unlink the frame *before* clearing it:
++            FRAME_EVAL_HOOK_FRAME_POP();
+             _PyInterpreterFrame *dying = frame;
+             frame = cframe.current_frame = dying->previous;
+             _PyEvalFrameClearAndPop(tstate, dying);
+@@ -958,6 +960,7 @@
+             _Py_LeaveRecursiveCallPy(tstate);
+             assert(frame != &entry_frame);
+             // GH-99729: We need to unlink the frame *before* clearing it:
++            FRAME_EVAL_HOOK_FRAME_POP();
+             _PyInterpreterFrame *dying = frame;
+             frame = cframe.current_frame = dying->previous;
+             _PyEvalFrameClearAndPop(tstate, dying);
+@@ -976,6 +979,7 @@
+             _Py_LeaveRecursiveCallPy(tstate);
+             assert(frame != &entry_frame);
+             // GH-99729: We need to unlink the frame *before* clearing it:
++            FRAME_EVAL_HOOK_FRAME_POP();
+             _PyInterpreterFrame *dying = frame;
+             frame = cframe.current_frame = dying->previous;
+             _PyEvalFrameClearAndPop(tstate, dying);
+@@ -998,6 +1002,7 @@
+             _Py_LeaveRecursiveCallPy(tstate);
+             assert(frame != &entry_frame);
+             // GH-99729: We need to unlink the frame *before* clearing it:
++            FRAME_EVAL_HOOK_FRAME_POP();
+             _PyInterpreterFrame *dying = frame;
+             frame = cframe.current_frame = dying->previous;
+             _PyEvalFrameClearAndPop(tstate, dying);
+@@ -1159,7 +1164,7 @@
+             DECREMENT_ADAPTIVE_COUNTER(cache->counter);
+             #endif  /* ENABLE_SPECIALIZATION */
+             assert(frame != &entry_frame);
 -            if ((tstate->interp->eval_frame == NULL) &&
 +            if (FRAME_EVAL_SPECIALIZATION_ALLOWED(tstate) &&
-@@ -1207 +1207 @@
+                 (Py_TYPE(receiver) == &PyGen_Type || Py_TYPE(receiver) == &PyCoro_Type) &&
+                 ((PyGenObject *)receiver)->gi_frame_state < FRAME_EXECUTING)
+             {
+@@ -1204,7 +1209,7 @@
+             PyObject *v = stack_pointer[-1];
+             PyObject *receiver = stack_pointer[-2];
+             #line 875 "Python/bytecodes.c"
 -            DEOPT_IF(tstate->interp->eval_frame, SEND);
 +            DEOPT_IF(!FRAME_EVAL_SPECIALIZATION_ALLOWED(tstate), SEND);
-@@ -2641 +2641 @@
+             PyGenObject *gen = (PyGenObject *)receiver;
+             DEOPT_IF(Py_TYPE(gen) != &PyGen_Type &&
+                      Py_TYPE(gen) != &PyCoro_Type, SEND);
+@@ -1236,6 +1241,7 @@
+             tstate->exc_info = gen->gi_exc_state.previous_item;
+             gen->gi_exc_state.previous_item = NULL;
+             _Py_LeaveRecursiveCallPy(tstate);
++            FRAME_EVAL_HOOK_FRAME_POP();
+             _PyInterpreterFrame *gen_frame = frame;
+             frame = cframe.current_frame = frame->previous;
+             gen_frame->previous = NULL;
+@@ -1257,6 +1263,7 @@
+             tstate->exc_info = gen->gi_exc_state.previous_item;
+             gen->gi_exc_state.previous_item = NULL;
+             _Py_LeaveRecursiveCallPy(tstate);
++            FRAME_EVAL_HOOK_FRAME_POP();
+             _PyInterpreterFrame *gen_frame = frame;
+             frame = cframe.current_frame = frame->previous;
+             gen_frame->previous = NULL;
+@@ -2630,7 +2637,7 @@
+             uint32_t func_version = read_u32(&next_instr[3].cache);
+             PyObject *fget = read_obj(&next_instr[5].cache);
+             #line 1891 "Python/bytecodes.c"
 -            DEOPT_IF(tstate->interp->eval_frame, LOAD_ATTR);
 +            DEOPT_IF(!FRAME_EVAL_SPECIALIZATION_ALLOWED(tstate), LOAD_ATTR);
-@@ -2673 +2673 @@
+ 
+             PyTypeObject *cls = Py_TYPE(owner);
+             DEOPT_IF(cls->tp_version_tag != type_version, LOAD_ATTR);
+@@ -2662,7 +2669,7 @@
+             uint32_t func_version = read_u32(&next_instr[3].cache);
+             PyObject *getattribute = read_obj(&next_instr[5].cache);
+             #line 1917 "Python/bytecodes.c"
 -            DEOPT_IF(tstate->interp->eval_frame, LOAD_ATTR);
 +            DEOPT_IF(!FRAME_EVAL_SPECIALIZATION_ALLOWED(tstate), LOAD_ATTR);
-@@ -3440 +3440 @@
+             PyTypeObject *cls = Py_TYPE(owner);
+             DEOPT_IF(cls->tp_version_tag != type_version, LOAD_ATTR);
+             assert(type_version != 0);
+@@ -3028,6 +3035,7 @@
+             PREDICTED(JUMP_BACKWARD);
+             #line 2151 "Python/bytecodes.c"
+             assert(oparg < INSTR_OFFSET());
++            FRAME_EVAL_HOOK_BACKWARD_JUMP();
+             JUMPBY(-oparg);
+             #line 3033 "Python/generated_cases.c.h"
+             CHECK_EVAL_BREAKER();
+@@ -3118,6 +3126,7 @@
+              * generator or coroutine, so we deliberately do not check it here.
+              * (see bpo-30039).
+              */
++            FRAME_EVAL_HOOK_BACKWARD_JUMP();
+             JUMPBY(-oparg);
+             #line 3123 "Python/generated_cases.c.h"
+             DISPATCH();
+@@ -3422,7 +3431,7 @@
+         TARGET(FOR_ITER_GEN) {
+             PyObject *iter = stack_pointer[-1];
+             #line 2429 "Python/bytecodes.c"
 -            DEOPT_IF(tstate->interp->eval_frame, FOR_ITER);
 +            DEOPT_IF(!FRAME_EVAL_SPECIALIZATION_ALLOWED(tstate), FOR_ITER);
-@@ -3754 +3754 @@
+             PyGenObject *gen = (PyGenObject *)iter;
+             DEOPT_IF(Py_TYPE(gen) != &PyGen_Type, FOR_ITER);
+             DEOPT_IF(gen->gi_frame_state >= FRAME_EXECUTING, FOR_ITER);
+@@ -3736,7 +3745,7 @@
+             int positional_args = total_args - KWNAMES_LEN();
+             // Check if the call can be inlined or not
+             if (Py_TYPE(callable) == &PyFunction_Type &&
 -                tstate->interp->eval_frame == NULL &&
 +                FRAME_EVAL_SPECIALIZATION_ALLOWED(tstate) &&
-@@ -3838 +3838 @@
+                 ((PyFunctionObject *)callable)->vectorcall == _PyFunction_Vectorcall)
+             {
+                 int code_flags = ((PyCodeObject*)PyFunction_GET_CODE(callable))->co_flags;
+@@ -3758,10 +3767,12 @@
+                 DISPATCH_INLINED(new_frame);
+             }
+             /* Callable is not a normal Python function */
++            FRAME_EVAL_HOOK_NATIVE_CALL_PRE();
+             res = PyObject_Vectorcall(
+                 callable, args,
+                 positional_args | PY_VECTORCALL_ARGUMENTS_OFFSET,
+                 kwnames);
++            FRAME_EVAL_HOOK_NATIVE_CALL_POST();
+             if (opcode == INSTRUMENTED_CALL) {
+                 PyObject *arg = total_args == 0 ?
+                     &_PyInstrumentation_MISSING : PEEK(total_args);
+@@ -3819,7 +3830,7 @@
+             uint32_t func_version = read_u32(&next_instr[1].cache);
+             #line 2753 "Python/bytecodes.c"
+             assert(kwnames == NULL);
 -            DEOPT_IF(tstate->interp->eval_frame, CALL);
 +            DEOPT_IF(!FRAME_EVAL_SPECIALIZATION_ALLOWED(tstate), CALL);
-@@ -3872 +3872 @@
+             int is_meth = method != NULL;
+             int argcount = oparg;
+             if (is_meth) {
+@@ -3853,7 +3864,7 @@
+             uint32_t func_version = read_u32(&next_instr[1].cache);
+             #line 2781 "Python/bytecodes.c"
+             assert(kwnames == NULL);
 -            DEOPT_IF(tstate->interp->eval_frame, CALL);
 +            DEOPT_IF(!FRAME_EVAL_SPECIALIZATION_ALLOWED(tstate), CALL);
-@@ -4478 +4478 @@
+             int is_meth = method != NULL;
+             int argcount = oparg;
+             if (is_meth) {
+@@ -3981,8 +3992,10 @@
+             PyTypeObject *tp = (PyTypeObject *)callable;
+             DEOPT_IF(tp->tp_vectorcall == NULL, CALL);
+             STAT_INC(CALL, hit);
++            FRAME_EVAL_HOOK_NATIVE_CALL_PRE();
+             res = tp->tp_vectorcall((PyObject *)tp, args,
+                                     total_args - kwnames_len, kwnames);
++            FRAME_EVAL_HOOK_NATIVE_CALL_POST();
+             kwnames = NULL;
+             /* Free the arguments. */
+             for (int i = 0; i < total_args; i++) {
+@@ -4025,7 +4038,9 @@
+                 goto error;
+             }
+             PyObject *arg = args[0];
++            FRAME_EVAL_HOOK_NATIVE_CALL_PRE();
+             res = _PyCFunction_TrampolineCall(cfunc, PyCFunction_GET_SELF(callable), arg);
++            FRAME_EVAL_HOOK_NATIVE_CALL_POST();
+             _Py_LeaveRecursiveCallTstate(tstate);
+             assert((res != NULL) ^ (_PyErr_Occurred(tstate) != NULL));
+ 
+@@ -4061,10 +4076,12 @@
+             STAT_INC(CALL, hit);
+             PyCFunction cfunc = PyCFunction_GET_FUNCTION(callable);
+             /* res = func(self, args, nargs) */
++            FRAME_EVAL_HOOK_NATIVE_CALL_PRE();
+             res = ((_PyCFunctionFast)(void(*)(void))cfunc)(
+                 PyCFunction_GET_SELF(callable),
+                 args,
+                 total_args);
++            FRAME_EVAL_HOOK_NATIVE_CALL_POST();
+             assert((res != NULL) ^ (_PyErr_Occurred(tstate) != NULL));
+ 
+             /* Free the arguments. */
+@@ -4109,12 +4126,14 @@
+             _PyCFunctionFastWithKeywords cfunc =
+                 (_PyCFunctionFastWithKeywords)(void(*)(void))
+                 PyCFunction_GET_FUNCTION(callable);
++            FRAME_EVAL_HOOK_NATIVE_CALL_PRE();
+             res = cfunc(
+                 PyCFunction_GET_SELF(callable),
+                 args,
+                 total_args - KWNAMES_LEN(),
+                 kwnames
+             );
++            FRAME_EVAL_HOOK_NATIVE_CALL_POST();
+             assert((res != NULL) ^ (_PyErr_Occurred(tstate) != NULL));
+             kwnames = NULL;
+ 
+@@ -4264,7 +4283,9 @@
+             if (_Py_EnterRecursiveCallTstate(tstate, " while calling a Python object")) {
+                 goto error;
+             }
++            FRAME_EVAL_HOOK_NATIVE_CALL_PRE();
+             res = _PyCFunction_TrampolineCall(cfunc, self, arg);
++            FRAME_EVAL_HOOK_NATIVE_CALL_POST();
+             _Py_LeaveRecursiveCallTstate(tstate);
+             assert((res != NULL) ^ (_PyErr_Occurred(tstate) != NULL));
+             Py_DECREF(self);
+@@ -4303,7 +4324,9 @@
+             int nargs = total_args - 1;
+             _PyCFunctionFastWithKeywords cfunc =
+                 (_PyCFunctionFastWithKeywords)(void(*)(void))meth->ml_meth;
++            FRAME_EVAL_HOOK_NATIVE_CALL_PRE();
+             res = cfunc(self, args + 1, nargs - KWNAMES_LEN(), kwnames);
++            FRAME_EVAL_HOOK_NATIVE_CALL_POST();
+             assert((res != NULL) ^ (_PyErr_Occurred(tstate) != NULL));
+             kwnames = NULL;
+ 
+@@ -4349,7 +4372,9 @@
+             if (_Py_EnterRecursiveCallTstate(tstate, " while calling a Python object")) {
+                 goto error;
+             }
++            FRAME_EVAL_HOOK_NATIVE_CALL_PRE();
+             res = _PyCFunction_TrampolineCall(cfunc, self, NULL);
++            FRAME_EVAL_HOOK_NATIVE_CALL_POST();
+             _Py_LeaveRecursiveCallTstate(tstate);
+             assert((res != NULL) ^ (_PyErr_Occurred(tstate) != NULL));
+             Py_DECREF(self);
+@@ -4388,7 +4413,9 @@
+             _PyCFunctionFast cfunc =
+                 (_PyCFunctionFast)(void(*)(void))meth->ml_meth;
+             int nargs = total_args - 1;
++            FRAME_EVAL_HOOK_NATIVE_CALL_PRE();
+             res = cfunc(self, args + 1, nargs);
++            FRAME_EVAL_HOOK_NATIVE_CALL_POST();
+             assert((res != NULL) ^ (_PyErr_Occurred(tstate) != NULL));
+             /* Clear the stack of the arguments. */
+             for (int i = 0; i < total_args; i++) {
+@@ -4442,7 +4469,9 @@
+                     tstate, PY_MONITORING_EVENT_CALL,
+                     frame, next_instr-1, func, arg);
+                 if (err) goto error;
++                FRAME_EVAL_HOOK_NATIVE_CALL_PRE();
+                 result = PyObject_Call(func, callargs, kwargs);
++                FRAME_EVAL_HOOK_NATIVE_CALL_POST();
+                 if (result == NULL) {
+                     _Py_call_instrumentation_exc2(
+                         tstate, PY_MONITORING_EVENT_C_RAISE,
+@@ -4459,7 +4488,7 @@
+             }
+             else {
+                 if (Py_TYPE(func) == &PyFunction_Type &&
 -                    tstate->interp->eval_frame == NULL &&
 +                    FRAME_EVAL_SPECIALIZATION_ALLOWED(tstate) &&
-
+                     ((PyFunctionObject *)func)->vectorcall == _PyFunction_Vectorcall) {
+                     assert(PyTuple_CheckExact(callargs));
+                     Py_ssize_t nargs = PyTuple_GET_SIZE(callargs);
+@@ -4477,7 +4506,9 @@
+                     frame->return_offset = 0;
+                     DISPATCH_INLINED(new_frame);
+                 }
++                FRAME_EVAL_HOOK_NATIVE_CALL_PRE();
+                 result = PyObject_Call(func, callargs, kwargs);
++                FRAME_EVAL_HOOK_NATIVE_CALL_POST();
+             }
+             #line 4483 "Python/generated_cases.c.h"
+             Py_DECREF(func);
+@@ -4553,6 +4584,7 @@
+             gen_frame->owner = FRAME_OWNED_BY_GENERATOR;
+             _Py_LeaveRecursiveCallPy(tstate);
+             assert(frame != &entry_frame);
++            FRAME_EVAL_HOOK_FRAME_POP();
+             _PyInterpreterFrame *prev = frame->previous;
+             _PyThreadState_PopFrame(tstate, frame);
+             frame = cframe.current_frame = prev;
+diff --git a/Python/instrumentation.c b/Python/instrumentation.c
+index a6ff7a8a98506c5dcf32841bbad6ffaa37879c00..30d5729ade93d991414fee24bf32baf3c72634a1 100644
 --- a/Python/instrumentation.c
 +++ b/Python/instrumentation.c
-@@ -16,14 +16,4 @@
+@@ -13,20 +13,10 @@
+ #include "pycore_pyerrors.h"
+ #include "pycore_pystate.h"
+ 
 -/* Uncomment this to dump debugging output when assertions fail */
 -// #define INSTRUMENT_DEBUG 1
 -
@@ -148,24 +548,64 @@
 +extern PyObject *frame_eval_monitoring_missing;
 +#define _PyInstrumentation_DISABLE (*frame_eval_monitoring_disable)
 +#define _PyInstrumentation_MISSING (*frame_eval_monitoring_missing)
-
+ 
+ static const int8_t EVENT_FOR_OPCODE[256] = {
+     [RETURN_CONST] = PY_MONITORING_EVENT_PY_RETURN,
+diff --git a/Python/specialize.c b/Python/specialize.c
+index 2c0d99b04edbf272e24e268d1429365211ea2a47..3ae8ea6bfe8c6d6154f190b8b42c5709a0597c28 100644
 --- a/Python/specialize.c
 +++ b/Python/specialize.c
-@@ -790 +790 @@
+@@ -787,7 +787,7 @@ _Py_Specialize_LoadAttr(PyObject *owner, _Py_CODEUNIT *instr, PyObject *name)
+             if (version == 0) {
+                 goto fail;
+             }
 -            if (_PyInterpreterState_GET()->eval_frame) {
 +            if (!FRAME_EVAL_SPECIALIZATION_ALLOWED_INTERP(_PyInterpreterState_GET())) {
-@@ -856 +856 @@
+                 SPECIALIZATION_FAIL(LOAD_ATTR, SPEC_FAIL_OTHER);
+                 goto fail;
+             }
+@@ -853,7 +853,7 @@ _Py_Specialize_LoadAttr(PyObject *owner, _Py_CODEUNIT *instr, PyObject *name)
+             if (version == 0) {
+                 goto fail;
+             }
 -            if (_PyInterpreterState_GET()->eval_frame) {
 +            if (!FRAME_EVAL_SPECIALIZATION_ALLOWED_INTERP(_PyInterpreterState_GET())) {
-@@ -1404 +1404 @@
+                 SPECIALIZATION_FAIL(LOAD_ATTR, SPEC_FAIL_OTHER);
+                 goto fail;
+             }
+@@ -1401,7 +1401,7 @@ _Py_Specialize_BinarySubscr(
+             SPECIALIZATION_FAIL(BINARY_SUBSCR, SPEC_FAIL_OUT_OF_VERSIONS);
+             goto fail;
+         }
 -        if (_PyInterpreterState_GET()->eval_frame) {
 +        if (!FRAME_EVAL_SPECIALIZATION_ALLOWED_INTERP(_PyInterpreterState_GET())) {
-@@ -1677 +1677 @@
+             SPECIALIZATION_FAIL(BINARY_SUBSCR, SPEC_FAIL_OTHER);
+             goto fail;
+         }
+@@ -1674,7 +1674,7 @@ specialize_py_call(PyFunctionObject *func, _Py_CODEUNIT *instr, int nargs,
+     PyCodeObject *code = (PyCodeObject *)func->func_code;
+     int kind = function_kind(code);
+     /* Don't specialize if PEP 523 is active */
 -    if (_PyInterpreterState_GET()->eval_frame) {
 +    if (!FRAME_EVAL_SPECIALIZATION_ALLOWED_INTERP(_PyInterpreterState_GET())) {
-@@ -2229 +2229 @@
+         SPECIALIZATION_FAIL(CALL, SPEC_FAIL_CALL_PEP_523);
+         return -1;
+     }
+@@ -2226,7 +2226,7 @@ _Py_Specialize_ForIter(PyObject *iter, _Py_CODEUNIT *instr, int oparg)
+         assert(instr[oparg + INLINE_CACHE_ENTRIES_FOR_ITER + 1].op.code == END_FOR  ||
+             instr[oparg + INLINE_CACHE_ENTRIES_FOR_ITER + 1].op.code == INSTRUMENTED_END_FOR
+         );
 -        if (_PyInterpreterState_GET()->eval_frame) {
 +        if (!FRAME_EVAL_SPECIALIZATION_ALLOWED_INTERP(_PyInterpreterState_GET())) {
-@@ -2256 +2256 @@
+             SPECIALIZATION_FAIL(FOR_ITER, SPEC_FAIL_OTHER);
+             goto failure;
+         }
+@@ -2253,7 +2253,7 @@ _Py_Specialize_Send(PyObject *receiver, _Py_CODEUNIT *instr)
+     _PySendCache *cache = (_PySendCache *)(instr + 1);
+     PyTypeObject *tp = Py_TYPE(receiver);
+     if (tp == &PyGen_Type || tp == &PyCoro_Type) {
 -        if (_PyInterpreterState_GET()->eval_frame) {
 +        if (!FRAME_EVAL_SPECIALIZATION_ALLOWED_INTERP(_PyInterpreterState_GET())) {
+             SPECIALIZATION_FAIL(SEND, SPEC_FAIL_OTHER);
+             goto failure;
+         }
